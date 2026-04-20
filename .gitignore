@@ -1,8 +1,9 @@
-HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+gemini_api_key.txt
+rapidapi_key.txt
 
 ### STS ###
 .apt_generated
