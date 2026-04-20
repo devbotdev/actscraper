@@ -61,7 +61,7 @@ public final class GeminiEntryPromptService {
         } else {
             sb.append("Return ONLY a JSON array of booleans with true for YES and false for NO. No markdown, no explanations.\n");
         }
-        sb.append("Determine if each item below is related to Albania or Albanian current affairs:\n");
+        sb.append(ActscraperApplication.getActscraperApplication().getSystemPrompt()).append("\n");
 
         for (int i = 0; i < texts.size(); i++) {
             sb.append(i + 1).append(". ").append(texts.get(i)).append("\n");

@@ -19,6 +19,10 @@ import java.util.List;
 
 public class Scrapers {
 
+    private static final String igAPIString = "instagram-scraper-20251.p.rapidapi.com";
+    private static final String fbAPIString = "facebook-scraper-api4.p.rapidapi.com";
+
+
     private static class PendingItem {
         Mention mention;
         String textToPrompt;
@@ -124,41 +128,93 @@ public class Scrapers {
                     .connectTimeout(Duration.ofSeconds(10))
                     .build();
 
-            HttpRequest igRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://instagram-scraper-api2.p.rapidapi.com/v1/comments?code_or_id_or_url=one.albania"))
-                    .header("X-RapidAPI-Key", rapidApiKey)
-                    .header("X-RapidAPI-Host", "instagram-scraper-api2.p.rapidapi.com")
-                    .GET()
-                    .build();
+            // FACEBOOK
+            HttpRequest fbPostsRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("https://facebook-scraper-api4.p.rapidapi.com/get_facebook_page_posts_details_from_id?profile_id=100064865822999&timezone=UTC"))
+                    .header("x-rapidapi-key", rapidApiKey)
+                    .header("x-rapidapi-host", "facebook-scraper-api4.p.rapidapi.com")
+                    .GET().build();
 
-            HttpResponse<String> igResponse = client.send(igRequest, HttpResponse.BodyHandlers.ofString());
-            if (igResponse.statusCode() == 200) {
-                System.out.println("Instagram RapidAPI call successful.");
-                Mention m = new Mention("Instagram RapidAPI Data", "ig-sample", new Date(), "Instagram", 0.70);
-                pendingItems.add(new PendingItem(m, "Instagram RapidAPI Data", null));
+            HttpResponse<String> fbPostsResponse = client.send(fbPostsRequest, HttpResponse.BodyHandlers.ofString());
+            if (fbPostsResponse.statusCode() == 200) {
+                List<String> postLinks = extractJsonValues(fbPostsResponse.body(), "post_link");
+                for (String link : postLinks) {
+                    String encoded = java.net.URLEncoder.encode(link, "UTF-8");
+                    HttpRequest commentsReq = HttpRequest.newBuilder()
+                            .uri(URI.create("https://facebook-scraper-api4.p.rapidapi.com/get_facebook_post_comments_details?link=" + encoded))
+                            .header("x-rapidapi-key", rapidApiKey)
+                            .header("x-rapidapi-host", "facebook-scraper-api4.p.rapidapi.com")
+                            .GET().build();
+
+                    HttpResponse<String> commentsResp = client.send(commentsReq, HttpResponse.BodyHandlers.ofString());
+                    if (commentsResp.statusCode() == 200) {
+                        List<String> comments = extractJsonValues(commentsResp.body(), "comment_text");
+                        for (String comment : comments) {
+                            Mention m = new Mention(
+                                    "FB Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
+                                    "fb-" + comment.hashCode(), new Date(), "Facebook", 0.70);
+                            pendingItems.add(new PendingItem(m, comment, null));
+                        }
+                    } else {
+                        System.out.println("  [ERROR] Facebook comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
+                    }
+                }
             } else {
-                System.out.println("  [ERROR] Instagram API returned status " + igResponse.statusCode() + ": " + igResponse.body());
+                System.out.println("  [ERROR] Facebook posts fetch returned " + fbPostsResponse.statusCode() + ": " + fbPostsResponse.body());
             }
 
-            HttpRequest fbRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://facebook-scraper3.p.rapidapi.com/comments?post_url=https://www.facebook.com/one.albania/"))
-                    .header("X-RapidAPI-Key", rapidApiKey)
-                    .header("X-RapidAPI-Host", "facebook-scraper3.p.rapidapi.com")
-                    .GET()
-                    .build();
+            // INSTAGRAM
+            HttpRequest igPostsRequest = HttpRequest.newBuilder()
+                    .uri(URI.create("https://instagram-scraper-20251.p.rapidapi.com/userposts/?username_or_id=one.albania"))
+                    .header("x-rapidapi-key", rapidApiKey)
+                    .header("x-rapidapi-host", "instagram-scraper-20251.p.rapidapi.com")
+                    .GET().build();
 
-            HttpResponse<String> fbResponse = client.send(fbRequest, HttpResponse.BodyHandlers.ofString());
-            if (fbResponse.statusCode() == 200) {
-                System.out.println("Facebook RapidAPI call successful.");
-                Mention m = new Mention("Facebook RapidAPI Data", "fb-sample", new Date(), "Facebook", 0.70);
-                pendingItems.add(new PendingItem(m, "Facebook RapidAPI Data", null));
+            HttpResponse<String> igPostsResponse = client.send(igPostsRequest, HttpResponse.BodyHandlers.ofString());
+            if (igPostsResponse.statusCode() == 200) {
+                List<String> postCodes = extractJsonValues(igPostsResponse.body(), "code");
+                for (String code : postCodes) {
+                    HttpRequest commentsReq = HttpRequest.newBuilder()
+                            .uri(URI.create("https://instagram-scraper-20251.p.rapidapi.com/postcomments/?code_or_url=" + code))
+                            .header("x-rapidapi-key", rapidApiKey)
+                            .header("x-rapidapi-host", "instagram-scraper-20251.p.rapidapi.com")
+                            .GET().build();
+
+                    HttpResponse<String> commentsResp = client.send(commentsReq, HttpResponse.BodyHandlers.ofString());
+                    if (commentsResp.statusCode() == 200) {
+                        List<String> comments = extractJsonValues(commentsResp.body(), "text");
+                        for (String comment : comments) {
+                            Mention m = new Mention(
+                                    "IG Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
+                                    "ig-" + comment.hashCode(), new Date(), "Instagram", 0.70);
+                            pendingItems.add(new PendingItem(m, comment, null));
+                        }
+                    } else {
+                        System.out.println("  [ERROR] Instagram comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
+                    }
+                }
             } else {
-                System.out.println("  [ERROR] Facebook API returned status " + fbResponse.statusCode() + ": " + fbResponse.body());
+                System.out.println("  [ERROR] Instagram posts fetch returned " + igPostsResponse.statusCode() + ": " + igPostsResponse.body());
             }
-
         } catch (Exception e) {
             System.out.println("  [ERROR] RapidAPI: " + e.getMessage());
         }
+    }
+
+    private static List<String> extractJsonValues(String json, String key) {
+        List<String> results = new ArrayList<>();
+        String search = "\"" + key + "\"";
+        int idx = 0;
+        while ((idx = json.indexOf(search, idx)) != -1) {
+            idx = json.indexOf(":", idx) + 1;
+            while (idx < json.length() && json.charAt(idx) == ' ') idx++;
+            if (idx < json.length() && json.charAt(idx) == '"') {
+                int end = json.indexOf("\"", idx + 1);
+                if (end != -1) results.add(json.substring(idx + 1, end));
+            }
+            idx++;
+        }
+        return results;
     }
 
     public static void fetch(String url, String sourceName, double weight, Inscribe inscribe) {
