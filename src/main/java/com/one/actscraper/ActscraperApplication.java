@@ -20,8 +20,9 @@ public class ActscraperApplication {
     private final GeminiConfig geminiConfig = new GeminiConfig();
     private final GeminiService geminiService = new GeminiService(geminiConfig, getGeminiApiKey());
     private final ArrayList<Item> map = new ArrayList<>();
+    private final String eval = "if so, append each item with a positive / negative impression tag.";
     private final String systemPrompt =
-            "Determine if each item below is related to One Albania / Albanian Telecommunications current affairs:";
+            "Determine if each item below is related to One Albania / Albanian Telecommunications current affairs, " + eval;
 
     public ActscraperApplication() {
         actscraperApplication = this;
@@ -49,7 +50,7 @@ public class ActscraperApplication {
         System.out.println("Running scheduled fetch...");
 
         for (Item item : map) {
-            Scrapers.fetch(item.getUrl(), item.getName(), item.getWeight(), inscribe);
+            Scrapers.fetch(item.url(), item.name(), item.weight(), inscribe);
         }
 
         // Usage Limit - Uncomment when fixed

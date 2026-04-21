@@ -1,7 +1,6 @@
 package com.one.actscraper.Item;
 
 public class Item {
-
     private final String url;
     private final String name;
     private final double weight;
@@ -12,15 +11,35 @@ public class Item {
         this.weight = weight;
     }
 
-    public String getUrl() {
+    public String url() {
         return url;
     }
 
-    public String getName() {
+    public String name() {
         return name;
     }
 
-    public double getWeight() {
+    public double weight() {
         return weight;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Item)) return false;
+        Item item = (Item) o;
+        return Double.compare(item.weight, weight) == 0 &&
+                java.util.Objects.equals(url, item.url) &&
+                java.util.Objects.equals(name, item.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(url, name, weight);
+    }
+
+    @Override
+    public String toString() {
+        return "Item(" + "url=" + url + ", name=" + name + ", weight=" + weight + ')';
     }
 }

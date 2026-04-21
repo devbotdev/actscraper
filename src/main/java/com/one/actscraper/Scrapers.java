@@ -5,6 +5,8 @@ import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
 import com.rometools.rome.io.XmlReader;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 
 import java.io.StringReader;
 import java.net.URI;
@@ -12,26 +14,52 @@ import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
+import com.one.actscraper.AnalysisResult;
 
 public class Scrapers {
 
     private static final String igAPIString = "instagram-scraper-20251.p.rapidapi.com";
     private static final String fbAPIString = "facebook-scraper-api4.p.rapidapi.com";
+    private static final String subReddit = "r/albania";
+    private static final String instagramUsername = "one.albania";
+    private static final String facebookID = "100064865822999";
 
 
     private static class PendingItem {
         Mention mention;
         String textToPrompt;
         String urlToInscribe;
-        
-        PendingItem(Mention mention, String textToPrompt, String urlToInscribe) {
+        boolean webpageItem;
+        String fullArticleContent;
+
+        public PendingItem(Mention mention, String textToPrompt, String urlToInscribe, boolean webpageItem) {
             this.mention = mention;
             this.textToPrompt = textToPrompt;
             this.urlToInscribe = urlToInscribe;
+            this.webpageItem = webpageItem;
+            this.fullArticleContent = null;
+        }
+
+        String buildPromptText() {
+            if (!webpageItem) {
+                return textToPrompt;
+            }
+
+            if (fullArticleContent != null && !fullArticleContent.isBlank()) {
+                return textToPrompt
+                        + "\n\n=== FULL ARTICLE BODY ===\n"
+                        + fullArticleContent
+                        + "\n=== END ARTICLE ===";
+            } else {
+                // Fallback: just use the title and description
+                return textToPrompt;
+            }
         }
     }
 
@@ -44,22 +72,51 @@ public class Scrapers {
         }
 
         System.out.println("Processing " + pendingItems.size() + " accumulated items through Gemini in bulk...");
-        List<String> texts = new ArrayList<>();
+
+        // Fetch full article content for webpage items before processing
+        System.out.println("Fetching full article content for webpage sources...");
         for (PendingItem item : pendingItems) {
-            texts.add(item.textToPrompt);
+            if (item.webpageItem && item.urlToInscribe != null) {
+                String content = fetchArticleContent(item.urlToInscribe);
+                if (content != null && !content.isBlank()) {
+                    item.fullArticleContent = content;
+                    System.out.println("  [FETCHED] " + item.urlToInscribe + " (" + content.length() + " chars)");
+                }
+            }
         }
 
-        boolean[] flags = GeminiEntryPromptService.checkBatch(texts);
+        List<String> texts = new ArrayList<>();
+        for (PendingItem item : pendingItems) {
+            texts.add(item.buildPromptText());
+        }
+
+        GeminiEntryPromptService.EvaluationResult[] evaluations = GeminiEntryPromptService.checkBatchEvaluations(texts);
 
         System.out.println("\n=== Results & Saving ===");
+        List<AnalysisResult> analysisResults = new ArrayList<>();
+
+        // Load existing results from JSON to avoid overwriting
+        analysisResults.addAll(FileStorage.loadAnalysisResultsFromJson());
+
         for (int i = 0; i < pendingItems.size(); i++) {
             PendingItem item = pendingItems.get(i);
             if (item.urlToInscribe != null && inscribe != null) {
                 inscribe.addUrl(item.urlToInscribe);
             }
-            item.mention.setFlagged(flags[i]);
+            item.mention.setFlagged(evaluations[i].isRelevant());
+            item.mention.setFeedbackTone(evaluations[i].getFeedbackTone());
+            item.mention.setAppraisal(evaluations[i].getAppraisal());
             System.out.println(item.mention);
             FileStorage.saveMentionToFile(item.mention);
+
+            // Create AnalysisResult and save to JSON
+            AnalysisResult result = new AnalysisResult(item.mention, evaluations[i].getAppraisal());
+            analysisResults.add(result);
+        }
+
+        // Save all results to JSON (existing + new)
+        if (!analysisResults.isEmpty()) {
+            FileStorage.saveAnalysisResultsToJson(analysisResults);
         }
 
         pendingItems.clear();
@@ -73,7 +130,7 @@ public class Scrapers {
                     .build();
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://www.reddit.com/r/albania/comments.json?limit=10"))
+                    .uri(URI.create("https://www.reddit.com/"+subReddit+"/comments.json?limit=10"))
                     .header("User-Agent", "ActScraper/1.0")
                     .GET()
                     .build();
@@ -86,25 +143,25 @@ public class Scrapers {
 
                 // Collect new (unseen) comments first
                 List<String> bodies = new ArrayList<>();
-                List<String> fakeUrls = new ArrayList<>();
+                List<String> fUrls = new ArrayList<>();
 
                 for (int i = 1; i < items.length; i++) {
-                    String part = items[i].split(",")[0].replaceAll("\"", "");
+                    String part = items[i].split(",")[0].replace("\"", "");
                     if (part.length() > 5) {
-                        String fakeUrl = "reddit-" + part.hashCode();
-                        if (inscribe.getSeenUrls().contains(fakeUrl)) continue;
+                        String fUrl = "reddit-" + part.hashCode();
+                        if (inscribe.getSeenUrls().contains(fUrl)) continue;
                         bodies.add(part);
-                        fakeUrls.add(fakeUrl);
+                        fUrls.add(fUrl);
                     }
                 }
 
                 for (int i = 0; i < bodies.size(); i++) {
                     String part = bodies.get(i);
-                    String fakeUrl = fakeUrls.get(i);
+                    String fUrl = fUrls.get(i);
                     Mention m = new Mention(
                             "Reddit Comment: " + (part.length() > 30 ? part.substring(0, 30) + "..." : part),
-                            fakeUrl, new Date(), "Reddit", 0.60);
-                    pendingItems.add(new PendingItem(m, part, fakeUrl));
+                            fUrl, new Date(), "Reddit", 0.60);
+                    pendingItems.add(new PendingItem(m, part, fUrl, false));
                 }
             } else {
                 System.out.println("Reddit API returned " + response.statusCode());
@@ -130,20 +187,20 @@ public class Scrapers {
 
             // FACEBOOK
             HttpRequest fbPostsRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://facebook-scraper-api4.p.rapidapi.com/get_facebook_page_posts_details_from_id?profile_id=100064865822999&timezone=UTC"))
+                    .uri(URI.create("https://" + fbAPIString + "/get_facebook_page_posts_details_from_id?profile_id="+facebookID+"&timezone=UTC"))
                     .header("x-rapidapi-key", rapidApiKey)
-                    .header("x-rapidapi-host", "facebook-scraper-api4.p.rapidapi.com")
+                    .header("x-rapidapi-host", fbAPIString)
                     .GET().build();
 
             HttpResponse<String> fbPostsResponse = client.send(fbPostsRequest, HttpResponse.BodyHandlers.ofString());
             if (fbPostsResponse.statusCode() == 200) {
                 List<String> postLinks = extractJsonValues(fbPostsResponse.body(), "post_link");
                 for (String link : postLinks) {
-                    String encoded = java.net.URLEncoder.encode(link, "UTF-8");
+                    String encoded = java.net.URLEncoder.encode(link, StandardCharsets.UTF_8);
                     HttpRequest commentsReq = HttpRequest.newBuilder()
-                            .uri(URI.create("https://facebook-scraper-api4.p.rapidapi.com/get_facebook_post_comments_details?link=" + encoded))
+                            .uri(URI.create("https://"+fbAPIString+"/get_facebook_post_comments_details?link=" + encoded))
                             .header("x-rapidapi-key", rapidApiKey)
-                            .header("x-rapidapi-host", "facebook-scraper-api4.p.rapidapi.com")
+                            .header("x-rapidapi-host", fbAPIString)
                             .GET().build();
 
                     HttpResponse<String> commentsResp = client.send(commentsReq, HttpResponse.BodyHandlers.ofString());
@@ -153,7 +210,7 @@ public class Scrapers {
                             Mention m = new Mention(
                                     "FB Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
                                     "fb-" + comment.hashCode(), new Date(), "Facebook", 0.70);
-                            pendingItems.add(new PendingItem(m, comment, null));
+                            pendingItems.add(new PendingItem(m, comment, null, false));
                         }
                     } else {
                         System.out.println("  [ERROR] Facebook comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -165,9 +222,9 @@ public class Scrapers {
 
             // INSTAGRAM
             HttpRequest igPostsRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://instagram-scraper-20251.p.rapidapi.com/userposts/?username_or_id=one.albania"))
+                    .uri(URI.create("https://"+igAPIString+"/userposts/?username_or_id=" + instagramUsername))
                     .header("x-rapidapi-key", rapidApiKey)
-                    .header("x-rapidapi-host", "instagram-scraper-20251.p.rapidapi.com")
+                    .header("x-rapidapi-host", igAPIString)
                     .GET().build();
 
             HttpResponse<String> igPostsResponse = client.send(igPostsRequest, HttpResponse.BodyHandlers.ofString());
@@ -175,9 +232,9 @@ public class Scrapers {
                 List<String> postCodes = extractJsonValues(igPostsResponse.body(), "code");
                 for (String code : postCodes) {
                     HttpRequest commentsReq = HttpRequest.newBuilder()
-                            .uri(URI.create("https://instagram-scraper-20251.p.rapidapi.com/postcomments/?code_or_url=" + code))
+                            .uri(URI.create("https://"+igAPIString+"/postcomments/?code_or_url=" + code))
                             .header("x-rapidapi-key", rapidApiKey)
-                            .header("x-rapidapi-host", "instagram-scraper-20251.p.rapidapi.com")
+                            .header("x-rapidapi-host", igAPIString)
                             .GET().build();
 
                     HttpResponse<String> commentsResp = client.send(commentsReq, HttpResponse.BodyHandlers.ofString());
@@ -187,7 +244,7 @@ public class Scrapers {
                             Mention m = new Mention(
                                     "IG Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
                                     "ig-" + comment.hashCode(), new Date(), "Instagram", 0.70);
-                            pendingItems.add(new PendingItem(m, comment, null));
+                            pendingItems.add(new PendingItem(m, comment, null, false));
                         }
                     } else {
                         System.out.println("  [ERROR] Instagram comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -273,7 +330,58 @@ public class Scrapers {
                     weight
             );
             
-            pendingItems.add(new PendingItem(mention, text, entry.getLink()));
+            pendingItems.add(new PendingItem(
+                    mention,
+                    text,
+                    entry.getLink(),
+                    true
+            ));
+        }
+    }
+
+    private static String fetchArticleContent(String urlString) {
+        try {
+            if (urlString == null || urlString.isBlank()) {
+                return null;
+            }
+
+            // Fetch the HTML document with a reasonable timeout
+            Document doc = Jsoup.connect(urlString)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+                    .timeout(10000)
+                    .get();
+
+            if (doc == null) {
+                return null;
+            }
+
+            // Extract text from common article content containers
+            String text = doc.selectFirst("article") != null
+                    ? doc.selectFirst("article").text()
+                    : doc.selectFirst("main") != null
+                    ? doc.selectFirst("main").text()
+                    : doc.selectFirst("[role=main]") != null
+                    ? doc.selectFirst("[role=main]").text()
+                    : null;
+
+            // Fallback: try body if no specific container found
+            if (text == null || text.isBlank()) {
+                text = doc.body().text();
+            }
+
+            // Clean up excessive whitespace
+            if (text != null) {
+                text = text.replaceAll("\\s+", " ").trim();
+                // Cap at 8000 characters to avoid overwhelming Gemini
+                if (text.length() > 8000) {
+                    text = text.substring(0, 8000) + "...";
+                }
+            }
+
+            return text;
+        } catch (Exception e) {
+            System.out.println("  [WARNING] Failed to fetch article content from " + urlString + ": " + e.getMessage());
+            return null;
         }
     }
 }

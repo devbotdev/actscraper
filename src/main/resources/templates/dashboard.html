@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+
+        .stat-card {
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+            margin: 15px 0;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 0.95em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .charts-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .chart-section {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .chart-section h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.2em;
+        }
+
+        .chart-inner {
+            position: relative;
+            height: 350px;
+        }
+
+        .source-list {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 30px;
+        }
+
+        .source-list h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .source-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.3s ease;
+        }
+
+        .source-item:last-child {
+            border-bottom: none;
+        }
+
+        .source-item:hover {
+            background: #f9f9f9;
+        }
+
+        .source-name {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1em;
+        }
+
+        .source-count {
+            background: #667eea;
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .nav-links {
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .nav-links a {
+            display: inline-block;
+            padding: 12px 25px;
+            background: white;
+            color: #667eea;
+            text-decoration: none;
+            margin: 5px;
+            border-radius: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .nav-links a:hover {
+            background: #667eea;
+            color: white;
+            border-color: white;
+        }
+
+        @media (max-width: 768px) {
+            .charts-row {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .metric-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .metric-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Analytics Dashboard</h1>
+
+        <!-- Key Metrics -->
+        <div class="dashboard-grid">
+            <div class="card stat-card">
+                <div class="stat-label">Total Results</div>
+                <div class="stat-number" th:text="${stats.total}">0</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Flagged (Relevant)</div>
+                <div class="stat-number" th:text="${stats.flagged}">0</div>
+                <div style="color: #667eea; font-size: 0.9em;" th:if="${stats.total > 0}"
+                     th:text="${'(' + #numbers.formatDecimal((stats.flagged * 100.0 / stats.total), 1, 2) + '%)'}">
+                    (0%)
+                </div>
+            </div>
+            <div class="card stat-card">
+                <div class="metric-box">
+                    <div class="metric-label">Positive Sentiment</div>
+                    <div class="metric-value" th:text="${stats.positive}">0</div>
+                </div>
+            </div>
+            <div class="card stat-card">
+                <div class="metric-box" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
+                    <div class="metric-label">Negative Sentiment</div>
+                    <div class="metric-value" th:text="${stats.negative}">0</div>
+                </div>
+            </div>
+            <div class="card stat-card">
+                <div class="metric-box" style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);">
+                    <div class="metric-label">Neutral/Unknown</div>
+                    <div class="metric-value" th:text="${stats.unknown}">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="charts-row">
+            <div class="chart-section">
+                <h3>Sentiment Distribution</h3>
+                <div class="chart-inner">
+                    <canvas id="sentimentChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <h3>Flagged vs Unflagged</h3>
+                <div class="chart-inner">
+                    <canvas id="flaggedChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Source Breakdown -->
+        <div class="source-list" th:if="${stats.bySource.size() > 0}">
+            <h2>📈 Mentions by Source</h2>
+            <div th:each="entry : ${stats.bySource}" class="source-item">
+                <span class="source-name" th:text="${entry.key}">Source Name</span>
+                <span class="source-count" th:text="${entry.value}">0</span>
+            </div>
+
+            <div style="margin-top: 30px;">
+                <h3 style="margin-bottom: 20px; color: #333;">Source Comparison</h3>
+                <div style="position: relative; height: 400px;">
+                    <canvas id="sourceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div class="nav-links">
+            <a href="/analysis/results">View All Results</a>
+            <a href="/analysis/positive">Positive Feedback</a>
+            <a href="/analysis/negative">Negative Feedback</a>
+            <a href="/analysis/flagged">Flagged Results</a>
+        </div>
+    </div>
+
+    <script th:inline="javascript">
+        /* global Chart */
+        // Sentiment Distribution Chart
+        const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
+        new Chart(sentimentCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Positive', 'Negative', 'Neutral/Unknown'],
+                datasets: [{
+                    data: [
+                        /*[[${stats.positive}]]*/0,
+                        /*[[${stats.negative}]]*/0,
+                        /*[[${stats.unknown}]]*/0
+                    ],
+                    backgroundColor: [
+                        '#27ae60',
+                        '#e74c3c',
+                        '#f39c12'
+                    ],
+                    borderColor: '#fff',
+                    borderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: {
+                                size: 12,
+                                weight: 'bold'
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Flagged vs Unflagged Chart
+        const flaggedCtx = document.getElementById('flaggedChart').getContext('2d');
+        new Chart(flaggedCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Flagged', 'Not Flagged'],
+                datasets: [{
+                    data: [
+                        /*[[${stats.flagged}]]*/0,
+                        /*[[${stats.total - stats.flagged}]]*/0
+                    ],
+                    backgroundColor: [
+                        '#667eea',
+                        '#ddd'
+                    ],
+                    borderColor: '#fff',
+                    borderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: {
+                                size: 12,
+                                weight: 'bold'
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Source Chart (Bar Chart)
+        const sourceCtx = document.getElementById('sourceChart').getContext('2d');
+        const sourceData = /*[[${(stats.bySource)}]]*/ {};
+
+        new Chart(sourceCtx, {
+            type: 'bar',
+            data: {
+                labels: Object.keys(sourceData),
+                datasets: [{
+                    label: 'Mentions Count',
+                    data: Object.values(sourceData),
+                    backgroundColor: [
+                        '#667eea',
+                        '#764ba2',
+                        '#27ae60',
+                        '#e74c3c',
+                        '#f39c12',
+                        '#3498db',
+                        '#9b59b6'
+                    ],
+                    borderRadius: 8,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: {
+                            padding: 15,
+                            font: {
+                                size: 12,
+                                weight: 'bold'
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
+

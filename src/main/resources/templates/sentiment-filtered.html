@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sentiment Analysis Results</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            color: white;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .count-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.3);
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+
+        .positive-theme {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+        }
+
+        .negative-theme {
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+        }
+
+        .results-container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .result-item {
+            border: 1px solid #eee;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            background: #f9f9f9;
+            border-left: 5px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .result-item:hover {
+            background: #f0f0f0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .result-item.positive {
+            border-left-color: #27ae60;
+        }
+
+        .result-item.negative {
+            border-left-color: #e74c3c;
+        }
+
+        .result-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .result-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .badge-source {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .appraisal {
+            margin-top: 12px;
+            padding: 12px;
+            background: white;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            color: #555;
+            line-height: 1.6;
+        }
+
+        .appraisal strong {
+            color: #333;
+        }
+
+        .result-link {
+            display: inline-block;
+            margin-top: 12px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+
+        .result-link:hover {
+            color: #764ba2;
+        }
+
+        .empty-message {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-style: italic;
+        }
+
+        .date-meta {
+            font-size: 0.85em;
+            color: #999;
+        }
+
+        .nav-links {
+            text-align: center;
+            margin-top: 30px;
+        }
+
+        .nav-links a {
+            display: inline-block;
+            padding: 10px 20px;
+            background: white;
+            color: #667eea;
+            text-decoration: none;
+            margin: 5px;
+            border-radius: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            background: #f0f0f0;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .result-meta {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header" th:classappend="${sentiment == 'POSITIVE'} ? 'positive-theme' : 'negative-theme'">
+            <h1 th:if="${sentiment == 'POSITIVE'}">👍 Positive Feedback</h1>
+            <h1 th:if="${sentiment == 'NEGATIVE'}">👎 Negative Feedback</h1>
+            <div class="count-badge" th:text="${'Total: ' + count}">Total: 0</div>
+        </div>
+
+        <div class="results-container">
+            <div class="empty-message" th:if="${results.isEmpty()}">
+                No results found for this sentiment category.
+            </div>
+
+            <div th:if="${!results.isEmpty()}">
+                <div class="result-item" th:each="result : ${results}"
+                     th:classappend="${sentiment == 'POSITIVE'} ? 'positive' : 'negative'">
+                    <div class="result-title" th:text="${result.title}">Article Title</div>
+
+                    <div class="result-meta">
+                        <span class="badge badge-source" th:text="${result.sourceName}">Source</span>
+                        <span class="date-meta" th:text="${#dates.format(result.publishedDate, 'MMM dd, yyyy HH:mm')}">
+                            Date
+                        </span>
+                        <span class="date-meta" th:text="${'Weight: ' + result.sourceWeight}">Weight</span>
+                    </div>
+
+                    <div class="appraisal">
+                        <strong>Analysis:</strong> <span th:text="${result.appraisal}">Explanation</span>
+                    </div>
+
+                    <a th:if="${result.url}" th:href="${result.url}" target="_blank" class="result-link">
+                        📖 Read Full Article
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="nav-links">
+            <a href="/analysis/results">← Back to All Results</a>
+            <a href="/analysis/dashboard">Dashboard</a>
+            <a href="/analysis/positive" th:if="${sentiment == 'NEGATIVE'}">View Positive Feedback</a>
+            <a href="/analysis/negative" th:if="${sentiment == 'POSITIVE'}">View Negative Feedback</a>
+        </div>
+    </div>
+</body>
+</html>
+
