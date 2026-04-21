@@ -24,11 +24,13 @@ import java.util.Objects;
 
 public class Scrapers {
 
+    // From rapid API, there's plenty more
     private static final String igAPIString = "instagram-scraper-20251.p.rapidapi.com";
     private static final String fbAPIString = "facebook-scraper-api4.p.rapidapi.com";
+
     private static final String subReddit = "r/albania";
     private static final String instagramUsername = "one.albania";
-    private static final String facebookID = "100064865822999";
+    private static final String facebookID = "100064865822999"; // Facebook won't work with usernames
 
     private static class PendingItem {
         Mention mention;
@@ -384,6 +386,18 @@ public class Scrapers {
                     .timeout(10000)
                     .get();
 
+
+            // Remove noise elements before extracting text
+            for (String selector : List.of(
+                    "nav", "footer", "header", "aside",
+                    "script", "style", "noscript",
+                    "[class*=ad]", "[id*=ad]", "[class*=banner]",
+                    "[class*=cookie]", "[class*=popup]", "[class*=sidebar]",
+                    "figure", "figcaption"
+            )) {
+                doc.select(selector).remove();
+            }
+
             // Extract text from common article content containers
             String text = doc.selectFirst("article") != null
                     ? Objects.requireNonNull(doc.selectFirst("article")).text()
@@ -400,10 +414,12 @@ public class Scrapers {
 
             // Clean up excessive whitespace
             text = text.replaceAll("\\s+", " ").trim();
-            // Cap at 8000 characters to avoid overwhelming Gemini
+            // Cap at 8000 characters to save tokens
             if (text.length() > 8000) {
                 text = text.substring(0, 8000) + "...";
             }
+
+            System.out.println(text);
 
             return text;
         } catch (Exception e) {

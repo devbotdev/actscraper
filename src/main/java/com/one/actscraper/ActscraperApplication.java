@@ -10,7 +10,6 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
-import java.security.Key;
 import java.text.MessageFormat;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -21,17 +20,18 @@ import java.util.Date;
 @EnableScheduling
 public class ActscraperApplication {
 
+    private final String eval = ", if so, append each item with a positive / negative impression tag.";
     private static ActscraperApplication actscraperApplication;
     private static final Inscribe inscribe = new Inscribe();
     private static final OutOfDateUrls outOfDateUrls = new OutOfDateUrls();
     private final GeminiConfig geminiConfig = new GeminiConfig();
     private final GeminiService geminiService = new GeminiService(geminiConfig, getGeminiApiKey());
     private final ArrayList<Item> map = new ArrayList<>();
-    private final String eval = ", if so, append each item with a positive / negative impression tag.";
+    private final Keywords keywords = new Keywords();
+
     private final String systemPrompt =
             "Determine if each item below is related to One Albania's current affairs, "
                     + eval;
-    private final Keywords keywords = new Keywords();
 
     private static Date startDate;
     private static Date endDate;
@@ -78,7 +78,9 @@ public class ActscraperApplication {
         // Usage Limit - Uncomment when fixed
         //Scrapers.fetchSocialMediaComments();
 
-        Scrapers.fetchRedditComments(inscribe);
+//        Scrapers.fetchRedditComments(inscribe);
+
+        // Run the article body text
         Scrapers.processPendingItems(inscribe);
 
         System.out.println("Cycle Finished. Next cycle in 5 minutes...");
