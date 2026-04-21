@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import com.one.actscraper.AnalysisResult;
 
@@ -29,7 +30,6 @@ public class Scrapers {
     private static final String subReddit = "r/albania";
     private static final String instagramUsername = "one.albania";
     private static final String facebookID = "100064865822999";
-
 
     private static class PendingItem {
         Mention mention;
@@ -93,10 +93,9 @@ public class Scrapers {
         GeminiEntryPromptService.EvaluationResult[] evaluations = GeminiEntryPromptService.checkBatchEvaluations(texts);
 
         System.out.println("\n=== Results & Saving ===");
-        List<AnalysisResult> analysisResults = new ArrayList<>();
 
         // Load existing results from JSON to avoid overwriting
-        analysisResults.addAll(FileStorage.loadAnalysisResultsFromJson());
+        List<AnalysisResult> analysisResults = new ArrayList<>(FileStorage.loadAnalysisResultsFromJson());
 
         for (int i = 0; i < pendingItems.size(); i++) {
             PendingItem item = pendingItems.get(i);
@@ -161,7 +160,10 @@ public class Scrapers {
                     Mention m = new Mention(
                             "Reddit Comment: " + (part.length() > 30 ? part.substring(0, 30) + "..." : part),
                             fUrl, new Date(), "Reddit", 0.60);
-                    pendingItems.add(new PendingItem(m, part, fUrl, false));
+                    if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
+                        pendingItems.add(new PendingItem(m, part, fUrl, false));
+                    else
+                        ActscraperApplication.getOutOfDateUrls().addUrl(fUrl);
                 }
             } else {
                 System.out.println("Reddit API returned " + response.statusCode());
@@ -209,8 +211,11 @@ public class Scrapers {
                         for (String comment : comments) {
                             Mention m = new Mention(
                                     "FB Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
-                                    "fb-" + comment.hashCode(), new Date(), "Facebook", 0.70);
-                            pendingItems.add(new PendingItem(m, comment, null, false));
+                                    "fb-" + link.hashCode() + "-" + comment.hashCode(), new Date(), "Facebook", 0.70);
+                            if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
+                                pendingItems.add(new PendingItem(m, comment, null, false));
+                            else
+                                ActscraperApplication.getOutOfDateUrls().addUrl("fb-" + link.hashCode() + "-" + comment.hashCode());
                         }
                     } else {
                         System.out.println("  [ERROR] Facebook comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -243,8 +248,11 @@ public class Scrapers {
                         for (String comment : comments) {
                             Mention m = new Mention(
                                     "IG Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
-                                    "ig-" + comment.hashCode(), new Date(), "Instagram", 0.70);
-                            pendingItems.add(new PendingItem(m, comment, null, false));
+                                    "ig-" + code.hashCode() + "-" + comment.hashCode(), new Date(), "Instagram", 0.70);
+                            if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
+                                pendingItems.add(new PendingItem(m, comment, null, false));
+                            else
+                                ActscraperApplication.getOutOfDateUrls().addUrl("ig-" + code.hashCode() + "-" + comment.hashCode());
                         }
                     } else {
                         System.out.println("  [ERROR] Instagram comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -279,15 +287,18 @@ public class Scrapers {
     }
 
     public static void fetch(String url, String sourceName, double weight, boolean allowDoctypes, Inscribe inscribe) {
-        SyndFeed feed = null;
+        SyndFeed feed;
         try {
             SyndFeedInput input = new SyndFeedInput();
+            java.net.URLConnection conn = new URL(url).openConnection();
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+
             if (allowDoctypes) {
-                String raw = new String(new URL(url).openStream().readAllBytes());
+                String raw = new String(conn.getInputStream().readAllBytes());
                 String cleaned = raw.replaceAll("<!DOCTYPE[^>]*>", "");
                 feed = input.build(new StringReader(cleaned));
             } else {
-                feed = input.build(new XmlReader(new URL(url)));
+                feed = input.build(new XmlReader(conn.getInputStream()));
             }
         } catch (Exception e) {
             if (!allowDoctypes && e.getMessage() != null && e.getMessage().contains("DOCTYPE")) {
@@ -307,7 +318,8 @@ public class Scrapers {
         // Filter to unseen entries only
         List<SyndEntry> newEntries = new ArrayList<>();
         for (SyndEntry entry : entries) {
-            if (!inscribe.getSeenUrls().contains(entry.getLink())) {
+            if (!inscribe.getSeenUrls().contains(entry.getLink()) &&
+                !ActscraperApplication.getOutOfDateUrls().contains(entry.getLink())) {
                 newEntries.add(entry);
             }
         }
@@ -329,13 +341,21 @@ public class Scrapers {
                     sourceName,
                     weight
             );
-            
-            pendingItems.add(new PendingItem(
+
+            // Check if URL is within the current date range
+            if (entry.getPublishedDate().after(ActscraperApplication.getStartDate()) &
+                entry.getPublishedDate().before(ActscraperApplication.getEndDate())) {
+                // Within date range - add to pending for processing
+                pendingItems.add(new PendingItem(
                     mention,
                     text,
                     entry.getLink(),
                     true
-            ));
+                ));
+            } else {
+                // Outside date range - mark as out-of-date so we don't re-fetch it repeatedly
+                ActscraperApplication.getOutOfDateUrls().addUrl(entry.getLink());
+            }
         }
     }
 
@@ -351,17 +371,13 @@ public class Scrapers {
                     .timeout(10000)
                     .get();
 
-            if (doc == null) {
-                return null;
-            }
-
             // Extract text from common article content containers
             String text = doc.selectFirst("article") != null
-                    ? doc.selectFirst("article").text()
+                    ? Objects.requireNonNull(doc.selectFirst("article")).text()
                     : doc.selectFirst("main") != null
-                    ? doc.selectFirst("main").text()
+                    ? Objects.requireNonNull(doc.selectFirst("main")).text()
                     : doc.selectFirst("[role=main]") != null
-                    ? doc.selectFirst("[role=main]").text()
+                    ? Objects.requireNonNull(doc.selectFirst("[role=main]")).text()
                     : null;
 
             // Fallback: try body if no specific container found
@@ -370,12 +386,10 @@ public class Scrapers {
             }
 
             // Clean up excessive whitespace
-            if (text != null) {
-                text = text.replaceAll("\\s+", " ").trim();
-                // Cap at 8000 characters to avoid overwhelming Gemini
-                if (text.length() > 8000) {
-                    text = text.substring(0, 8000) + "...";
-                }
+            text = text.replaceAll("\\s+", " ").trim();
+            // Cap at 8000 characters to avoid overwhelming Gemini
+            if (text.length() > 8000) {
+                text = text.substring(0, 8000) + "...";
             }
 
             return text;

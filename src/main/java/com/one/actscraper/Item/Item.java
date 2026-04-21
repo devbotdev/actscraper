@@ -1,5 +1,7 @@
 package com.one.actscraper.Item;
 
+import java.util.Date;
+
 public class Item {
     private final String url;
     private final String name;
@@ -26,8 +28,7 @@ public class Item {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof Item)) return false;
-        Item item = (Item) o;
+        if (!(o instanceof Item item)) return false;
         return Double.compare(item.weight, weight) == 0 &&
                 java.util.Objects.equals(url, item.url) &&
                 java.util.Objects.equals(name, item.name);

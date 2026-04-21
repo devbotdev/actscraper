@@ -283,6 +283,117 @@
             border-color: var(--purple-dim);
             background: var(--purple-glow);
         }
+
+        /* ── Date Picker Section ── */
+        .date-picker-section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 28px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .date-picker-label {
+            font-size: 0.72em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+        }
+
+        .date-input-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .date-input-group label {
+            font-size: 0.78em;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .date-input-group input[type="date"] {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            padding: 6px 10px;
+            background: var(--surface-2);
+            border: 1px solid var(--border-hi);
+            border-radius: 6px;
+            color: var(--text);
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .date-input-group input[type="date"]:hover {
+            border-color: var(--purple-dim);
+        }
+
+        .date-input-group input[type="date"]:focus {
+            outline: none;
+            border-color: var(--purple);
+            box-shadow: 0 0 0 2px var(--purple-glow);
+        }
+
+        .date-input-group input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(0.8);
+            cursor: pointer;
+        }
+
+        .date-apply-btn {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78em;
+            font-weight: 600;
+            padding: 6px 14px;
+            background: var(--purple-glow);
+            border: 1px solid var(--purple-dim);
+            color: var(--purple);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .date-apply-btn:hover {
+            background: rgba(124, 92, 252, 0.25);
+            box-shadow: 0 0 0 1px var(--purple);
+        }
+
+        .date-apply-btn:active {
+            transform: scale(0.98);
+        }
+
+        .date-status {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72em;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .date-status.success {
+            color: var(--positive);
+        }
+
+        .date-status.error {
+            color: var(--negative);
+        }
+
+        @media (max-width: 768px) {
+            .date-picker-section {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .date-status {
+                margin-left: 0;
+                margin-top: 8px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -294,6 +405,21 @@
                 <h1>Analytics Dashboard</h1>
                 <p>media monitoring · relevant mentions only</p>
             </div>
+        </div>
+
+        <!-- Date Range Picker -->
+        <div class="date-picker-section">
+            <div class="date-picker-label">📅 Search Period:</div>
+            <div class="date-input-group">
+                <label for="startDateInput">From:</label>
+                <input type="date" id="startDateInput" name="startDate">
+            </div>
+            <div class="date-input-group">
+                <label for="endDateInput">To:</label>
+                <input type="date" id="endDateInput" name="endDate">
+            </div>
+            <button class="date-apply-btn" onclick="applyDateFilter()">Apply Filter</button>
+            <div class="date-status" id="dateStatus"></div>
         </div>
 
         <!-- Key Metrics -->
@@ -368,6 +494,72 @@
 
     <script th:inline="javascript">
         /* global Chart */
+
+        // Initialize date picker on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchAndSetCurrentDates();
+        });
+
+        function fetchAndSetCurrentDates() {
+            fetch('/api/dates/current')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('startDateInput').value = data.startDate;
+                    document.getElementById('endDateInput').value = data.endDate;
+                })
+                .catch(error => console.error('Error fetching dates:', error));
+        }
+
+        function applyDateFilter() {
+            const startDate = document.getElementById('startDateInput').value;
+            const endDate = document.getElementById('endDateInput').value;
+            const statusDiv = document.getElementById('dateStatus');
+
+            if (!startDate || !endDate) {
+                statusDiv.textContent = '⚠️ Please select both dates';
+                statusDiv.className = 'date-status error';
+                return;
+            }
+
+            if (startDate > endDate) {
+                statusDiv.textContent = '⚠️ Start date must be before end date';
+                statusDiv.className = 'date-status error';
+                return;
+            }
+
+            statusDiv.textContent = '⏳ Updating...';
+            statusDiv.className = 'date-status';
+
+            fetch(`/api/dates/update?startDate=${startDate}&endDate=${endDate}`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    statusDiv.textContent = '✓ Filter applied • Refreshing...';
+                    statusDiv.className = 'date-status success';
+                    // Reload the page after a short delay to show success message
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 800);
+                } else {
+                    statusDiv.textContent = '✗ ' + data.message;
+                    statusDiv.className = 'date-status error';
+                }
+            })
+            .catch(error => {
+                statusDiv.textContent = '✗ Error updating dates';
+                statusDiv.className = 'date-status error';
+                console.error('Error:', error);
+            });
+        }
+
+        // Allow pressing Enter to apply filter
+        document.getElementById('endDateInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                applyDateFilter();
+            }
+        });
 
         Chart.defaults.color = '#5a6480';
         Chart.defaults.borderColor = '#1c2333';
