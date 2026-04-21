@@ -1,8 +1,8 @@
 package com.one.actscraper.Gemini;
 
 import com.one.actscraper.ActscraperApplication;
+import com.one.actscraper.Error.GeminiFailure;
 import com.one.actscraper.Item.FeedbackTone;
-import com.one.actscraper.Mention;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -24,10 +24,6 @@ public final class GeminiEntryPromptService {
             this.relevant = relevant;
             this.feedbackTone = feedbackTone == null ? FeedbackTone.UNKNOWN : feedbackTone;
             this.appraisal = appraisal == null ? "" : appraisal;
-        }
-
-        static EvaluationResult fallback() {
-            return new EvaluationResult(false, FeedbackTone.UNKNOWN, "Unable to evaluate - Gemini request failed");
         }
 
         public boolean isRelevant() {
@@ -70,6 +66,7 @@ public final class GeminiEntryPromptService {
 
         int expectedSize = texts.size();
         int maxAttempts = 3;
+        GeminiFailure lastFailure = null;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             boolean strict = (attempt > 1);
@@ -77,11 +74,15 @@ public final class GeminiEntryPromptService {
 
             try {
                 String response = APP.getGeminiResponse(prompt);
-                EvaluationResult[] parsed = parseEvaluationArray(response, expectedSize);
-                if (parsed != null) {
-                    return parsed;
+                if (response == null || response.isBlank()) {
+                    throw new GeminiFailure("Gemini returned an empty response.");
                 }
+                return parseEvaluationArray(response, expectedSize);
+            } catch (GeminiFailure e) {
+                lastFailure = e;
+                System.out.println("  [ERROR] Gemini bulk check failed (attempt " + attempt + "): " + e.getMessage());
             } catch (Exception e) {
+                lastFailure = new GeminiFailure("Gemini request failed.", e);
                 System.out.println("  [ERROR] Gemini bulk check failed (attempt " + attempt + "): " + e.getMessage());
             }
 
@@ -90,12 +91,11 @@ public final class GeminiEntryPromptService {
             }
         }
 
-        System.out.println("  [ERROR] Gemini bulk check completely failed after " + maxAttempts + " attempts. Returning fallback evaluation array.");
-        EvaluationResult[] fallback = new EvaluationResult[expectedSize];
-        for (int i = 0; i < expectedSize; i++) {
-            fallback[i] = EvaluationResult.fallback();
+        String message = "Gemini bulk check failed after " + maxAttempts + " attempts.";
+        if (lastFailure != null && lastFailure.getMessage() != null && !lastFailure.getMessage().isBlank()) {
+            message += " Last error: " + lastFailure.getMessage();
         }
-        return fallback;
+        throw new GeminiFailure(message, lastFailure);
     }
 
     private static String buildBulkPrompt(List<String> texts, boolean strict) {
@@ -111,7 +111,7 @@ public final class GeminiEntryPromptService {
         sb.append("   - NEGATIVE: article or people express criticism, disapproval, concerns, complaints\n");
         sb.append("   - UNKNOWN: sentiment cannot be determined or is neutral/mixed\n");
         sb.append("A sentiment appraisal must STRICTLY be based on the tone of the article / opinions provided, NEVER on what YOU perceive as the 'actual' sentiment. If the article contains both positive and negative feedback, choose the dominant tone or UNKNOWN if balanced.\n");
-        sb.append("3. If not relevant or no article body: set sentiment to UNKNOWN.\n");
+        sb.append("3. If not relevant or no article body: set sentiment to UNKNOWN. Explain in a few words why that decision was made.\n");
         sb.append("4. For appraisal: provide 1-2 concise sentences explaining WHY people feel this way.\n\n");
         sb.append("Items to evaluate:\n");
 
@@ -122,29 +122,36 @@ public final class GeminiEntryPromptService {
     }
 
     private static EvaluationResult[] parseEvaluationArray(String answer, int expectedSize) {
-        if (answer == null || answer.isBlank()) return null;
+        if (answer == null || answer.isBlank()) {
+            throw new GeminiFailure("Gemini returned empty JSON payload.");
+        }
 
         String clean = answer.replaceAll("(?s)^```(?:json)?\\s*|```$", "").trim();
-        if (!clean.startsWith("[") || !clean.endsWith("]")) return null;
+        if (!clean.startsWith("[") || !clean.endsWith("]")) {
+            throw new GeminiFailure("Gemini response is not a JSON array.");
+        }
 
         try {
             JsonNode root = OBJECT_MAPPER.readTree(clean);
             if (!root.isArray()) {
-                return null;
+                throw new GeminiFailure("Gemini response root is not an array.");
+            }
+
+            if (root.size() != expectedSize) {
+                throw new GeminiFailure("Gemini returned " + root.size() + " results but " + expectedSize + " were requested.");
             }
 
             EvaluationResult[] result = new EvaluationResult[expectedSize];
-            int limit = Math.min(expectedSize, root.size());
 
-            for (int i = 0; i < limit; i++) {
+            for (int i = 0; i < expectedSize; i++) {
                 JsonNode node = root.get(i);
                 if (node == null || !node.isObject()) {
-                    return null;
+                    throw new GeminiFailure("Gemini response entry " + i + " is invalid.");
                 }
 
                 JsonNode relevantNode = node.get("relevant");
                 if (relevantNode == null || !relevantNode.isBoolean()) {
-                    return null;
+                    throw new GeminiFailure("Gemini response entry " + i + " is missing boolean 'relevant'.");
                 }
 
                 String sentimentRaw = node.path("sentiment").asText("UNKNOWN");
@@ -153,17 +160,12 @@ public final class GeminiEntryPromptService {
                 result[i] = new EvaluationResult(relevantNode.asBoolean(), tone, appraisalText);
             }
 
-            for (int i = limit; i < expectedSize; i++) {
-                result[i] = EvaluationResult.fallback();
-            }
-
-            if (root.size() != expectedSize) {
-                System.out.println("  [WARNING] Count mismatch in bulk prompt (expected " + expectedSize + ", got " + root.size() + "). Padding/trimming applied.");
-            }
-
             return result;
         } catch (Exception e) {
-            return null;
+            if (e instanceof GeminiFailure geminiFailure) {
+                throw geminiFailure;
+            }
+            throw new GeminiFailure("Failed to parse Gemini response JSON.", e);
         }
     }
 

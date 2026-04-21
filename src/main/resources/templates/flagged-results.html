@@ -415,13 +415,13 @@
 
         <div class="page-header">
             <div class="header-left">
-                <div class="header-icon">⭐</div>
                 <div class="header-text">
                     <h1>Flagged Results</h1>
                     <p>relevant mentions only</p>
                 </div>
             </div>
-            <div class="count-tag" th:text="${'⭐ ' + count + ' flagged'}">0 flagged</div>
+<!--            <div class="count-tag" th:text="${'⭐ ' + count + ' flagged'}">0 flagged</div>-->
+            <div class="count-tag" th:text="${count + ' flagged'}">0 flagged</div>
         </div>
 
         <!-- Date Range Picker -->
@@ -448,15 +448,15 @@
                 <div class="result-item" th:each="result : ${results}">
                     <div class="result-header">
                         <div class="result-title" th:text="${result.title}">Article Title</div>
-                        <span class="flagged-tag">⭐ FLAGGED</span>
+                        <span class="flagged-tag">FLAGGED</span>
                     </div>
 
                     <div class="result-meta">
                         <span class="badge badge-source" th:text="${result.sourceName}">Source</span>
                         <span th:switch="${result.feedbackTone}">
-                            <span th:case="'POSITIVE'" class="badge badge-positive">👍 POSITIVE</span>
-                            <span th:case="'NEGATIVE'" class="badge badge-negative">👎 NEGATIVE</span>
-                            <span th:case="*" class="badge badge-neutral">〰️ NEUTRAL</span>
+                            <span th:case="'POSITIVE'" class="badge badge-positive">POSITIVE</span>
+                            <span th:case="'NEGATIVE'" class="badge badge-negative">NEGATIVE</span>
+                            <span th:case="*" class="badge badge-neutral">NEUTRAL</span>
                         </span>
                         <span class="date-meta" th:text="${#dates.format(result.publishedDate, 'MMM dd, yyyy HH:mm')}">Date</span>
                     </div>
@@ -514,7 +514,7 @@
                 return;
             }
 
-            statusDiv.textContent = '⏳ Updating...';
+            statusDiv.textContent = 'Updating...';
             statusDiv.className = 'date-status';
 
             fetch(`/api/dates/update?startDate=${startDate}&endDate=${endDate}`, {

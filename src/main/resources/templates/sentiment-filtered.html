@@ -393,10 +393,10 @@
 
         <div class="page-header">
             <div class="header-left">
-                <div class="header-icon">
-                    <span th:if="${sentiment == 'POSITIVE'}">👍</span>
-                    <span th:if="${sentiment == 'NEGATIVE'}">👎</span>
-                </div>
+<!--                <div class="header-icon">-->
+<!--                    <span th:if="${sentiment == 'POSITIVE'}">👍</span>-->
+<!--                    <span th:if="${sentiment == 'NEGATIVE'}">👎</span>-->
+<!--                </div>-->
                 <div class="header-text">
                     <h1 th:if="${sentiment == 'POSITIVE'}">Positive Feedback</h1>
                     <h1 th:if="${sentiment == 'NEGATIVE'}">Negative Feedback</h1>
@@ -409,7 +409,7 @@
 
         <!-- Date Range Picker -->
         <div class="date-picker-section">
-            <div class="date-picker-label">📅 Search Period:</div>
+            <div class="date-picker-label">Search Period:</div>
             <div class="date-input-group">
                 <label for="startDateInput">From:</label>
                 <input type="date" id="startDateInput" name="startDate">
@@ -490,7 +490,7 @@
                 return;
             }
 
-            statusDiv.textContent = '⏳ Updating...';
+            statusDiv.textContent = 'Updating...';
             statusDiv.className = 'date-status';
 
             fetch(`/api/dates/update?startDate=${startDate}&endDate=${endDate}`, {

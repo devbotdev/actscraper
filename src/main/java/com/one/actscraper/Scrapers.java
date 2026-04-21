@@ -1,5 +1,6 @@
 package com.one.actscraper;
 
+import com.one.actscraper.Error.GeminiFailure;
 import com.one.actscraper.Gemini.GeminiEntryPromptService;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
@@ -90,7 +91,19 @@ public class Scrapers {
             texts.add(item.buildPromptText());
         }
 
-        GeminiEntryPromptService.EvaluationResult[] evaluations = GeminiEntryPromptService.checkBatchEvaluations(texts);
+        GeminiEntryPromptService.EvaluationResult[] evaluations;
+        try {
+            evaluations = GeminiEntryPromptService.checkBatchEvaluations(texts);
+        } catch (GeminiFailure e) {
+            System.out.println("  [ERROR] Gemini failed to evaluate pending batch. Skipping persistence for this run: " + e.getMessage());
+            for (PendingItem item : pendingItems) {
+                String retryKey = item.urlToInscribe != null ? item.urlToInscribe : item.mention.getUrl();
+                System.out.println("  [RETRY] Not persisted due to Gemini failure: " + retryKey);
+            }
+            // Clear failed in-memory batch to avoid duplicate accumulation; they will be re-fetched next run.
+            pendingItems.clear();
+            return;
+        }
 
         System.out.println("\n=== Results & Saving ===");
 

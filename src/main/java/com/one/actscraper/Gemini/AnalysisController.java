@@ -27,7 +27,6 @@ public class AnalysisController {
 
         model.addAttribute("results", results);
         model.addAttribute("stats", stats);
-        model.addAttribute("totalResults", results.size());
 
         return "analysis-results";
     }

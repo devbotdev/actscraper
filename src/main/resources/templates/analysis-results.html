@@ -96,12 +96,12 @@
         /* ── Stats ── */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 10px;
             margin-bottom: 28px;
         }
 
-        @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 600px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
 
         .stat-card {
@@ -485,7 +485,7 @@
 
         <!-- Date Range Picker -->
         <div class="date-picker-section">
-            <div class="date-picker-label">📅 Search Period:</div>
+            <div class="date-picker-label">Search Period:</div>
             <div class="date-input-group">
                 <label for="startDateInput">From:</label>
                 <input type="date" id="startDateInput" name="startDate">
@@ -500,10 +500,6 @@
 
         <!-- Stats overview -->
         <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">Total</div>
-                <div class="stat-number" th:text="${stats.total}">0</div>
-            </div>
             <div class="stat-card c-positive">
                 <div class="stat-label">Positive</div>
                 <div class="stat-number" th:text="${stats.positive}">0</div>
@@ -549,11 +545,11 @@
 
                     <div class="result-meta">
                         <span class="badge badge-source" th:text="${result.sourceName}">Source</span>
-                        <span th:if="${result.flagged}" class="badge badge-flagged">⭐ FLAGGED</span>
+                        <span th:if="${result.flagged}" class="badge badge-flagged">FLAGGED</span>
                         <span th:switch="${result.feedbackTone}">
-                            <span th:case="'POSITIVE'" class="badge badge-positive">👍 POSITIVE</span>
-                            <span th:case="'NEGATIVE'" class="badge badge-negative">👎 NEGATIVE</span>
-                            <span th:case="*" class="badge badge-neutral">〰️ NEUTRAL</span>
+                            <span th:case="'POSITIVE'" class="badge badge-positive">POSITIVE</span>
+                            <span th:case="'NEGATIVE'" class="badge badge-negative">NEGATIVE</span>
+                            <span th:case="*" class="badge badge-neutral">NEUTRAL</span>
                         </span>
                         <span class="source-meta" th:text="${#dates.format(result.publishedDate, 'yyyy-MM-dd HH:mm')}">Date</span>
                     </div>
@@ -611,7 +607,7 @@
                 return;
             }
 
-            statusDiv.textContent = '⏳ Updating...';
+            statusDiv.textContent = 'Updating...';
             statusDiv.className = 'date-status';
 
             fetch(`/api/dates/update?startDate=${startDate}&endDate=${endDate}`, {

@@ -393,7 +393,6 @@
     <div class="container">
 
         <div class="page-header">
-            <div class="header-icon">📊</div>
             <div class="header-text">
                 <h1>Analytics Dashboard</h1>
                 <p>media monitoring · relevant mentions only</p>
@@ -402,7 +401,7 @@
 
         <!-- Date Range Picker -->
         <div class="date-picker-section">
-            <div class="date-picker-label">📅 Search Period:</div>
+            <div class="date-picker-label">Search Period:</div>
             <div class="date-input-group">
                 <label for="startDateInput">From:</label>
                 <input type="date" id="startDateInput" name="startDate">
@@ -512,7 +511,7 @@
                 return;
             }
 
-            statusDiv.textContent = '⏳ Updating...';
+            statusDiv.textContent = 'Updating...';
             statusDiv.className = 'date-status';
 
             fetch(`/api/dates/update?startDate=${startDate}&endDate=${endDate}`, {
