@@ -30,7 +30,7 @@ public class ActscraperApplication {
     private final Keywords keywords = new Keywords();
 
     private final String systemPrompt =
-            "Determine if each item below is related to One Albania's current affairs, "
+            "Determine if each item below is related to One Albania's current affairs"
                     + eval;
 
     private static Date startDate;
