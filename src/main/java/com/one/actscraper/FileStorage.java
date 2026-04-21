@@ -90,11 +90,29 @@ public class FileStorage {
     }
 
     /**
+     * Load only relevant (flagged) analysis results from JSON file.
+     */
+    public static List<AnalysisResult> loadRelevantAnalysisResultsFromJson() {
+        return loadAnalysisResultsFromJson()
+                .stream()
+                .filter(AnalysisResult::isFlagged)
+                .toList();
+    }
+
+    /**
      * Get statistics from analysis results
      */
     public static AnalysisStatistics getStatistics() {
         List<AnalysisResult> results = loadAnalysisResultsFromJson();
         return new AnalysisStatistics(results);
+    }
+
+    /**
+     * Get statistics from relevant (flagged) analysis results only.
+     */
+    public static AnalysisStatistics getRelevantStatistics() {
+        List<AnalysisResult> relevantResults = loadRelevantAnalysisResultsFromJson();
+        return new AnalysisStatistics(relevantResults);
     }
 
     /**

@@ -22,8 +22,8 @@ public class AnalysisController {
      */
     @GetMapping("/results")
     public String getResults(Model model) {
-        List<AnalysisResult> results = FileStorage.loadAnalysisResultsFromJson();
-        FileStorage.AnalysisStatistics stats = FileStorage.getStatistics();
+        List<AnalysisResult> results = FileStorage.loadRelevantAnalysisResultsFromJson();
+        FileStorage.AnalysisStatistics stats = FileStorage.getRelevantStatistics();
 
         model.addAttribute("results", results);
         model.addAttribute("stats", stats);
@@ -37,7 +37,7 @@ public class AnalysisController {
      */
     @GetMapping("/positive")
     public String getPositiveResults(Model model) {
-        List<AnalysisResult> results = FileStorage.loadAnalysisResultsFromJson()
+        List<AnalysisResult> results = FileStorage.loadRelevantAnalysisResultsFromJson()
                 .stream()
                 .filter(r -> "POSITIVE".equals(r.getFeedbackTone()))
                 .toList();
@@ -54,7 +54,7 @@ public class AnalysisController {
      */
     @GetMapping("/negative")
     public String getNegativeResults(Model model) {
-        List<AnalysisResult> results = FileStorage.loadAnalysisResultsFromJson()
+        List<AnalysisResult> results = FileStorage.loadRelevantAnalysisResultsFromJson()
                 .stream()
                 .filter(r -> "NEGATIVE".equals(r.getFeedbackTone()))
                 .toList();
@@ -71,8 +71,8 @@ public class AnalysisController {
      */
     @GetMapping("/dashboard")
     public String getDashboard(Model model) {
-        FileStorage.AnalysisStatistics stats = FileStorage.getStatistics();
-        List<AnalysisResult> results = FileStorage.loadAnalysisResultsFromJson();
+        FileStorage.AnalysisStatistics stats = FileStorage.getRelevantStatistics();
+        List<AnalysisResult> results = FileStorage.loadRelevantAnalysisResultsFromJson();
 
         model.addAttribute("stats", stats);
         model.addAttribute("results", results);
@@ -85,10 +85,7 @@ public class AnalysisController {
      */
     @GetMapping("/flagged")
     public String getFlaggedResults(Model model) {
-        List<AnalysisResult> results = FileStorage.loadAnalysisResultsFromJson()
-                .stream()
-                .filter(AnalysisResult::isFlagged)
-                .toList();
+        List<AnalysisResult> results = FileStorage.loadRelevantAnalysisResultsFromJson();
 
         model.addAttribute("results", results);
         model.addAttribute("count", results.size());

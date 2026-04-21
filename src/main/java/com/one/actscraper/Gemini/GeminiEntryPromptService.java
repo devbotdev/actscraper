@@ -110,7 +110,7 @@ public final class GeminiEntryPromptService {
         sb.append("   - POSITIVE: article or people express approval, support, satisfaction, praise\n");
         sb.append("   - NEGATIVE: article or people express criticism, disapproval, concerns, complaints\n");
         sb.append("   - UNKNOWN: sentiment cannot be determined or is neutral/mixed\n");
-        sb.append("3. If not relevant or no article body: set sentiment to UNKNOWN and appraisal to a brief explanation of why.\n");
+        sb.append("3. If not relevant or no article body: set sentiment to UNKNOWN.\n");
         sb.append("4. For appraisal: provide 1-2 concise sentences explaining WHY people feel this way.\n\n");
         sb.append("Items to evaluate:\n");
 
