@@ -92,7 +92,7 @@ public final class GeminiEntryPromptService {
         }
 
         String message = "Gemini bulk check failed after " + maxAttempts + " attempts.";
-        if (lastFailure != null && lastFailure.getMessage() != null && !lastFailure.getMessage().isBlank()) {
+        if (lastFailure.getMessage() != null && !lastFailure.getMessage().isBlank()) {
             message += " Last error: " + lastFailure.getMessage();
         }
         throw new GeminiFailure(message, lastFailure);

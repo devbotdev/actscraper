@@ -21,8 +21,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
-import com.one.actscraper.AnalysisResult;
 
 public class Scrapers {
 
@@ -222,13 +220,14 @@ public class Scrapers {
                     if (commentsResp.statusCode() == 200) {
                         List<String> comments = extractJsonValues(commentsResp.body(), "comment_text");
                         for (String comment : comments) {
+                            String url = "fb-" + link.hashCode() + "-" + comment.hashCode();
                             Mention m = new Mention(
                                     "FB Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
-                                    "fb-" + link.hashCode() + "-" + comment.hashCode(), new Date(), "Facebook", 0.70);
+                                    url, new Date(), "Facebook", 0.70);
                             if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
                                 pendingItems.add(new PendingItem(m, comment, null, false));
                             else
-                                ActscraperApplication.getOutOfDateUrls().addUrl("fb-" + link.hashCode() + "-" + comment.hashCode());
+                                ActscraperApplication.getOutOfDateUrls().addUrl(url);
                         }
                     } else {
                         System.out.println("  [ERROR] Facebook comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -259,13 +258,14 @@ public class Scrapers {
                     if (commentsResp.statusCode() == 200) {
                         List<String> comments = extractJsonValues(commentsResp.body(), "text");
                         for (String comment : comments) {
+                            String url = "ig-" + code.hashCode() + "-" + comment.hashCode();
                             Mention m = new Mention(
                                     "IG Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
-                                    "ig-" + code.hashCode() + "-" + comment.hashCode(), new Date(), "Instagram", 0.70);
+                                    url, new Date(), "Instagram", 0.70);
                             if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
                                 pendingItems.add(new PendingItem(m, comment, null, false));
                             else
-                                ActscraperApplication.getOutOfDateUrls().addUrl("ig-" + code.hashCode() + "-" + comment.hashCode());
+                                ActscraperApplication.getOutOfDateUrls().addUrl(url);
                         }
                     } else {
                         System.out.println("  [ERROR] Instagram comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());

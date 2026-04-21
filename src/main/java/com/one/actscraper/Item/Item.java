@@ -1,7 +1,5 @@
 package com.one.actscraper.Item;
 
-import java.util.Date;
-
 public class Item {
     private final String url;
     private final String name;
