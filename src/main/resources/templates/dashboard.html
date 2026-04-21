@@ -100,12 +100,12 @@
         /* ── Stat Cards ── */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             gap: 12px;
             margin-bottom: 28px;
         }
 
-        @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 700px)  { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
 
         .stat-card {
@@ -142,13 +142,6 @@
         .stat-card.accent-negative .stat-number { color: var(--negative); }
         .stat-card.accent-neutral  .stat-number { color: var(--neutral); }
         .stat-card.accent-purple   .stat-number { color: var(--purple); }
-
-        .stat-sub {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.72em;
-            color: var(--text-muted);
-            margin-top: 6px;
-        }
 
         /* ── Charts row ── */
         .charts-row {
@@ -424,17 +417,9 @@
 
         <!-- Key Metrics -->
         <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-label">Total Results</div>
-                <div class="stat-number" th:text="${stats.total}">0</div>
-            </div>
             <div class="stat-card accent-purple">
                 <div class="stat-label">Flagged / Relevant</div>
                 <div class="stat-number" th:text="${stats.flagged}">0</div>
-                <div class="stat-sub" th:if="${stats.total > 0}"
-                     th:text="${'(' + #numbers.formatDecimal((stats.flagged * 100.0 / stats.total), 1, 2) + '% of total)'}">
-                    (0%)
-                </div>
             </div>
             <div class="stat-card accent-positive">
                 <div class="stat-label">Positive</div>
