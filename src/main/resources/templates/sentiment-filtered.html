@@ -4,209 +4,311 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sentiment Analysis Results</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --bg:          #080b14;
+            --surface:     #0d1120;
+            --surface-2:   #111827;
+            --border:      #1c2333;
+            --border-hi:   #252d42;
+            --purple:      #7c5cfc;
+            --purple-dim:  #4f3a9e;
+            --purple-glow: rgba(124, 92, 252, 0.12);
+            --text:        #dde2f0;
+            --text-muted:  #5a6480;
+            --positive:    #22c55e;
+            --negative:    #ef4444;
+            --neutral: #fcb924;
+            --positive-bg: rgba(34, 197, 94, 0.08);
+            --negative-bg: rgba(239, 68, 68, 0.08);
+            --neutral-bg:  rgba(245, 158, 11, 0.08);
+
+            /* Dynamic per-sentiment – overridden below via Thymeleaf classappend */
+            --accent:      var(--purple);
+            --accent-dim:  var(--purple-dim);
+            --accent-glow: var(--purple-glow);
         }
 
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
             min-height: 100vh;
-            padding: 20px;
+            padding: 32px 24px;
+        }
+
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 40px 40px;
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Sentiment-specific overrides applied via th:classappend on body */
+        body.theme-positive {
+            --accent:      var(--positive);
+            --accent-dim:  rgba(34, 197, 94, 0.25);
+            --accent-glow: var(--positive-bg);
+        }
+
+        body.theme-negative {
+            --accent:      var(--negative);
+            --accent-dim:  rgba(239, 68, 68, 0.25);
+            --accent-glow: var(--negative-bg);
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1000px;
             margin: 0 auto;
+            position: relative;
+            z-index: 1;
         }
 
-        .header {
-            color: white;
-            margin-bottom: 30px;
-            text-align: center;
+        /* ── Header ── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
         }
 
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 14px;
         }
 
-        .count-badge {
-            display: inline-block;
-            background: rgba(255, 255, 255, 0.3);
-            padding: 8px 20px;
-            border-radius: 20px;
-            font-size: 1.1em;
-            font-weight: 600;
-        }
-
-        .positive-theme {
-            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
-        }
-
-        .negative-theme {
-            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        }
-
-        .results-container {
-            background: white;
+        .header-icon {
+            width: 44px;
+            height: 44px;
+            background: var(--accent-glow);
+            border: 1px solid var(--accent-dim);
             border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            flex-shrink: 0;
+        }
+
+        .header-text h1 {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: var(--text);
+            letter-spacing: -0.02em;
+        }
+
+        .header-text p {
+            font-size: 0.82em;
+            color: var(--text-muted);
+            margin-top: 2px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .count-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.80em;
+            font-weight: 700;
+            color: var(--accent);
+            background: var(--accent-glow);
+            border: 1px solid var(--accent-dim);
+            padding: 6px 14px;
+            border-radius: 20px;
+        }
+
+        /* ── Results panel ── */
+        .results-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+
+        .empty-message {
+            text-align: center;
+            padding: 60px 40px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
         }
 
         .result-item {
-            border: 1px solid #eee;
-            padding: 20px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-            background: #f9f9f9;
-            border-left: 5px solid #667eea;
-            transition: all 0.3s ease;
+            padding: 22px 24px;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+            position: relative;
         }
 
-        .result-item:hover {
-            background: #f0f0f0;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        .result-item:last-child { border-bottom: none; }
+
+        .result-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--accent);
+            opacity: 0.5;
+            transition: opacity 0.15s;
         }
 
-        .result-item.positive {
-            border-left-color: #27ae60;
-        }
-
-        .result-item.negative {
-            border-left-color: #e74c3c;
-        }
+        .result-item:hover { background: var(--surface-2); }
+        .result-item:hover::before { opacity: 1; }
 
         .result-title {
-            font-size: 1.2em;
+            font-size: 0.96em;
             font-weight: 600;
-            color: #333;
+            color: var(--text);
             margin-bottom: 10px;
+            line-height: 1.4;
         }
 
         .result-meta {
             display: flex;
             flex-wrap: wrap;
-            gap: 10px;
+            align-items: center;
+            gap: 8px;
             margin-bottom: 12px;
-            font-size: 0.9em;
-            color: #666;
         }
 
         .badge {
-            display: inline-block;
-            padding: 5px 12px;
-            border-radius: 15px;
-            font-size: 0.85em;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.70em;
             font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            letter-spacing: 0.02em;
         }
 
         .badge-source {
-            background: #e3f2fd;
-            color: #1976d2;
+            background: rgba(59, 130, 246, 0.1);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+
+        .date-meta {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.70em;
+            color: var(--text-muted);
+        }
+
+        .weight-meta {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.70em;
+            color: var(--text-muted);
         }
 
         .appraisal {
-            margin-top: 12px;
-            padding: 12px;
-            background: white;
-            border-left: 4px solid #667eea;
-            border-radius: 4px;
-            color: #555;
+            padding: 12px 14px;
+            background: var(--bg);
+            border-left: 2px solid var(--accent-dim);
+            border-radius: 0 4px 4px 0;
+            color: var(--text-muted);
+            font-size: 0.875em;
             line-height: 1.6;
         }
 
         .appraisal strong {
-            color: #333;
+            color: var(--text-muted);
+            font-weight: 600;
         }
 
         .result-link {
-            display: inline-block;
-            margin-top: 12px;
-            color: #667eea;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.74em;
+            font-weight: 500;
+            color: var(--accent);
             text-decoration: none;
-            font-weight: 600;
-            transition: color 0.3s ease;
+            opacity: 0.7;
+            transition: opacity 0.15s;
         }
 
-        .result-link:hover {
-            color: #764ba2;
-        }
+        .result-link:hover { opacity: 1; }
 
-        .empty-message {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-            font-style: italic;
-        }
-
-        .date-meta {
-            font-size: 0.85em;
-            color: #999;
-        }
-
+        /* ── Nav ── */
         .nav-links {
-            text-align: center;
-            margin-top: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
         }
 
         .nav-links a {
-            display: inline-block;
-            padding: 10px 20px;
-            background: white;
-            color: #667eea;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.78em;
+            font-weight: 500;
+            color: var(--text-muted);
             text-decoration: none;
-            margin: 5px;
-            border-radius: 5px;
-            font-weight: 600;
-            transition: all 0.3s ease;
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface);
+            transition: color 0.2s, border-color 0.2s, background 0.2s;
         }
 
         .nav-links a:hover {
-            background: #f0f0f0;
-        }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 1.8em;
-            }
-
-            .result-meta {
-                flex-direction: column;
-                gap: 8px;
-            }
+            color: var(--purple);
+            border-color: var(--purple-dim);
+            background: var(--purple-glow);
         }
     </style>
 </head>
-<body>
+<body th:classappend="${sentiment == 'POSITIVE'} ? 'theme-positive' : 'theme-negative'">
     <div class="container">
-        <div class="header" th:classappend="${sentiment == 'POSITIVE'} ? 'positive-theme' : 'negative-theme'">
-            <h1 th:if="${sentiment == 'POSITIVE'}">👍 Positive Feedback</h1>
-            <h1 th:if="${sentiment == 'NEGATIVE'}">👎 Negative Feedback</h1>
-            <div class="count-badge" th:text="${'Total: ' + count}">Total: 0</div>
+
+        <div class="page-header">
+            <div class="header-left">
+                <div class="header-icon">
+                    <span th:if="${sentiment == 'POSITIVE'}">👍</span>
+                    <span th:if="${sentiment == 'NEGATIVE'}">👎</span>
+                </div>
+                <div class="header-text">
+                    <h1 th:if="${sentiment == 'POSITIVE'}">Positive Feedback</h1>
+                    <h1 th:if="${sentiment == 'NEGATIVE'}">Negative Feedback</h1>
+                    <p th:if="${sentiment == 'POSITIVE'}">sentiment filter · positive</p>
+                    <p th:if="${sentiment == 'NEGATIVE'}">sentiment filter · negative</p>
+                </div>
+            </div>
+            <div class="count-tag" th:text="${count + ' results'}">0 results</div>
         </div>
 
-        <div class="results-container">
+        <div class="results-panel">
             <div class="empty-message" th:if="${results.isEmpty()}">
-                No results found for this sentiment category.
+                — no results for this sentiment —
             </div>
 
             <div th:if="${!results.isEmpty()}">
-                <div class="result-item" th:each="result : ${results}"
-                     th:classappend="${sentiment == 'POSITIVE'} ? 'positive' : 'negative'">
+                <div class="result-item" th:each="result : ${results}">
                     <div class="result-title" th:text="${result.title}">Article Title</div>
 
                     <div class="result-meta">
                         <span class="badge badge-source" th:text="${result.sourceName}">Source</span>
-                        <span class="date-meta" th:text="${#dates.format(result.publishedDate, 'MMM dd, yyyy HH:mm')}">
-                            Date
-                        </span>
-                        <span class="date-meta" th:text="${'Weight: ' + result.sourceWeight}">Weight</span>
+                        <span class="date-meta" th:text="${#dates.format(result.publishedDate, 'MMM dd, yyyy HH:mm')}">Date</span>
+                        <span class="weight-meta" th:text="${'wt: ' + result.sourceWeight}">Weight</span>
                     </div>
 
                     <div class="appraisal">
@@ -214,19 +316,19 @@
                     </div>
 
                     <a th:if="${result.url}" th:href="${result.url}" target="_blank" class="result-link">
-                        📖 Read Full Article
+                        Read article →
                     </a>
                 </div>
             </div>
         </div>
 
         <div class="nav-links">
-            <a href="/analysis/results">← Back to All Results</a>
+            <a href="/analysis/results">← All Results</a>
             <a href="/analysis/dashboard">Dashboard</a>
-            <a href="/analysis/positive" th:if="${sentiment == 'NEGATIVE'}">View Positive Feedback</a>
-            <a href="/analysis/negative" th:if="${sentiment == 'POSITIVE'}">View Negative Feedback</a>
+            <a href="/analysis/positive" th:if="${sentiment == 'NEGATIVE'}">View Positive</a>
+            <a href="/analysis/negative" th:if="${sentiment == 'POSITIVE'}">View Negative</a>
         </div>
+
     </div>
 </body>
 </html>
-
