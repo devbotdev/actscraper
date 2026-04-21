@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.security.Key;
+import java.text.MessageFormat;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -28,8 +29,7 @@ public class ActscraperApplication {
     private final ArrayList<Item> map = new ArrayList<>();
     private final String eval = ", if so, append each item with a positive / negative impression tag.";
     private final String systemPrompt =
-            "Determine if each item below is related to Albania's politics"
-//            "Determine if each item below is related to One Albania / Albanian Telecommunications current affairs, "
+            "Determine if each item below is related to One Albania's current affairs, "
                     + eval;
     private final Keywords keywords = new Keywords();
 
@@ -53,7 +53,7 @@ public class ActscraperApplication {
 
         for (int i = 0; i < new Keywords().size(); i++)
             map.add(new Item("https://news.google.com/rss/search?q=" + keywords.get(i),
-                    "Google News " + keywords.get(i),    0.88));
+                    MessageFormat.format("Google News {0}", keywords.get(i).replace("+", " ")),    0.88));
     }
 
     private String getGeminiApiKey() {
