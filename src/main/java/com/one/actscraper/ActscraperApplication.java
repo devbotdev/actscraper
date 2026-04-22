@@ -34,7 +34,7 @@ public class ActscraperApplication {
     private final Scrapers scrapers;
     private final GeminiController geminiController;
 
-    private final String topic = "One Albania's current affairs";
+    private final String topic = "Telecommunications Company - 'One Albania''s current affairs";
 
     private final String systemPrompt = topic + eval;
 
