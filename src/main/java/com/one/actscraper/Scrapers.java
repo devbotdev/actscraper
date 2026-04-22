@@ -61,28 +61,31 @@ public class Scrapers {
         }
 
         String buildPromptText() {
+            String basePrompt = textToPrompt;
+            if (urlToInscribe != null && !textToPrompt.contains(urlToInscribe)) {
+                basePrompt += "\nURL: " + urlToInscribe;
+            }
+
             if (!webpageItem) {
-                return textToPrompt;
+                return basePrompt;
             }
 
             if (ActscraperApplication.getActscraperApplication().isFulltextEnabled()) {
                 if (fullArticleContent != null && !fullArticleContent.isBlank()) {
-                    return textToPrompt
+                    return basePrompt
                             + "\n\n=== FULL ARTICLE BODY ===\n"
                             + fullArticleContent
                             + "\n=== END ARTICLE ===";
                 } else {
                     // Fallback: provide title, description, and URL as the body so Gemini evaluates sentiment
-                    return textToPrompt
-                            + "\n\n=== FULL ARTICLE BODY & ARTICLE URL ===\n"
-                            + textToPrompt
+                    return "=== FULL ARTICLE BODY & ARTICLE URL ===\n"
+                            + basePrompt
                             + "\n=== END ARTICLE ===";
                 }
             } else {
                 // Seems to be more efficient
-                return textToPrompt
-                        + "\n\n=== FULL ARTICLE BODY & ARTICLE URL ===\n"
-                        + textToPrompt
+                return "=== FULL ARTICLE BODY & ARTICLE URL ===\n"
+                        + basePrompt
                         + "\n=== END ARTICLE ===";
             }
         }

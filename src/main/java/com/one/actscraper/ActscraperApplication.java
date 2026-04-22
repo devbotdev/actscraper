@@ -58,10 +58,10 @@ public class ActscraperApplication {
 
         map = new ArrayList<>();
         map.add(new Item("https://www.balkanweb.com/feed/",       "BalkanWeb",    0.85));
-//        map.add(new Item("https://www.panorama.com.al/feed/",     "Panorama",     0.80));
-//        map.add(new Item("https://www.shekulli.com.al/feed/",     "Shekulli",     0.75));
-//        map.add(new Item("https://www.gazetashqip.com/feed/",     "Gazeta Shqip", 0.70));
-//        map.add(new Item("https://www.report.al/feed/",           "Report TV",    0.88));
+        map.add(new Item("https://www.panorama.com.al/feed/",     "Panorama",     0.80));
+        map.add(new Item("https://www.shekulli.com.al/feed/",     "Shekulli",     0.75));
+        map.add(new Item("https://www.gazetashqip.com/feed/",     "Gazeta Shqip", 0.70));
+        map.add(new Item("https://www.report.al/feed/",           "Report TV",    0.88));
 
         keywords = new Keywords();
 
