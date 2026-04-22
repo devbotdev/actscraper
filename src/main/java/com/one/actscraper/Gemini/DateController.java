@@ -48,7 +48,7 @@ public class DateController {
             ActscraperApplication.setEndDate(end);
 
             // Clear out-of-date URLs so they can be re-evaluated with the new date range
-            ActscraperApplication.getOutOfDateUrls().clear();
+            ActscraperApplication.getActscraperApplication().getOutOfDateUrls().clear();
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);

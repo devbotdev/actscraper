@@ -1,5 +1,10 @@
 package com.one.actscraper.Item;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+
 public class Item {
     private final String url;
     private final String name;
@@ -30,6 +35,18 @@ public class Item {
         return Double.compare(item.weight, weight) == 0 &&
                 java.util.Objects.equals(url, item.url) &&
                 java.util.Objects.equals(name, item.name);
+    }
+
+    public static String syntheticId(String prefix, String... parts) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            for (String part : parts) {
+                md.update(part.getBytes(StandardCharsets.UTF_8));
+            }
+            return prefix + HexFormat.of().formatHex(md.digest()).substring(0, 16);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override

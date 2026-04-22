@@ -13,8 +13,12 @@ public class GeminiService {
 
     protected GenerateContentResponse askGemini(String prompt) {
         assert client != null;
+        System.out.println("--- prompt to Gemini ---");
+        System.out.println(prompt);
+        System.out.println("------------------------");
         return client.models.generateContent(
-                "gemini-2.5-flash",
+//                "gemini-2.5-flash",
+                "gemini-3-flash-preview",
                 prompt,
                 null);
     }

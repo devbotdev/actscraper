@@ -59,6 +59,45 @@ public final class GeminiEntryPromptService {
         return flags;
     }
 
+    public static boolean[] checkBatchRelevance(List<String> texts) {
+        if (texts == null || texts.isEmpty()) {
+            return new boolean[0];
+        }
+
+        int expectedSize = texts.size();
+        int maxAttempts = 3;
+        GeminiFailure lastFailure = null;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            boolean strict = (attempt > 1);
+            String prompt = buildBulkRelevancePrompt(texts, strict);
+
+            try {
+                String response = APP.getGeminiResponse(prompt);
+                if (response == null || response.isBlank()) {
+                    throw new GeminiFailure("Gemini returned an empty response.");
+                }
+                return parseRelevanceArray(response, expectedSize);
+            } catch (GeminiFailure e) {
+                lastFailure = e;
+                System.out.println("  [ERROR] Gemini bulk relevance check failed (attempt " + attempt + "): " + e.getMessage());
+            } catch (Exception e) {
+                lastFailure = new GeminiFailure("Gemini request failed.", e);
+                System.out.println("  [ERROR] Gemini bulk relevance check failed (attempt " + attempt + "): " + e.getMessage());
+            }
+
+            if (attempt < maxAttempts) {
+                sleepExponential(attempt);
+            }
+        }
+
+        String message = "Gemini bulk relevance check failed after " + maxAttempts + " attempts.";
+        if (lastFailure.getMessage() != null && !lastFailure.getMessage().isBlank()) {
+            message += " Last error: " + lastFailure.getMessage();
+        }
+        throw new GeminiFailure(message, lastFailure);
+    }
+
     public static EvaluationResult[] checkBatchEvaluations(List<String> texts) {
         if (texts == null || texts.isEmpty()) {
             return new EvaluationResult[0];
@@ -103,22 +142,85 @@ public final class GeminiEntryPromptService {
         if (strict) sb.append("CRITICAL: You MUST return EXACTLY a valid JSON array. NO MARKDOWN FENCES. NO EXTRA TEXT.\n");
         else sb.append("Return ONLY a JSON array of objects. No markdown, no explanations.\n");
 
+        sb.append("The topic is: ").append(ActscraperApplication.getActscraperApplication().getSystemPrompt()).append("\n");
+
         sb.append("Each object MUST have fields: relevant (boolean), sentiment (string: POSITIVE, NEGATIVE, or UNKNOWN), appraisal (string: 1-2 sentences explaining WHY people are happy/unhappy).\n");
         sb.append("\nFor each item:\n");
-        sb.append("1. Determine if it is relevant to: ").append(ActscraperApplication.getActscraperApplication().getSystemPrompt()).append("\n");
-        sb.append("2. If relevant AND full article body is provided: analyze the entire article text to determine if it contains POSITIVE or NEGATIVE sentiment/feedback from people.\n");
+        sb.append("1. Analyze the entire article text to determine if it contains POSITIVE or NEGATIVE sentiment/feedback from people.\n");
         sb.append("   - POSITIVE: article or people express approval, support, satisfaction, praise\n");
         sb.append("   - NEGATIVE: article or people express criticism, disapproval, concerns, complaints\n");
         sb.append("   - UNKNOWN: sentiment cannot be determined or is neutral/mixed\n");
         sb.append("A sentiment appraisal must STRICTLY be based on the tone of the article / opinions provided, NEVER on what YOU perceive as the 'actual' sentiment. If the article contains both positive and negative feedback, choose the dominant tone or UNKNOWN if balanced.\n");
-        sb.append("3. If not relevant or no article body: set sentiment to UNKNOWN. Explain in a few words why that decision was made.\n");
-        sb.append("4. For appraisal: provide 1-2 concise sentences explaining WHY people feel this way.\n\n");
+        sb.append("2. If the article body is not relevant to the topic provided, or not reachable through URL, set sentiment to UNKNOWN and say it was a false positive.\n");
+        sb.append("3. For appraisal: provide 1-2 concise sentences explaining WHY people feel this way.\n\n");
+        sb.append("The topic is: ").append(ActscraperApplication.getActscraperApplication().getSystemPrompt()).append("\n");
         sb.append("Items to evaluate:\n");
 
         for (int i = 0; i < texts.size(); i++) {
             sb.append(i + 1).append(". ").append(texts.get(i)).append("\n");
         }
         return sb.toString();
+    }
+
+    private static String buildBulkRelevancePrompt(List<String> texts, boolean strict) {
+        StringBuilder sb = new StringBuilder();
+        if (strict) sb.append("CRITICAL: You MUST return EXACTLY a valid JSON array. NO MARKDOWN FENCES. NO EXTRA TEXT.\n");
+        else sb.append("Return ONLY a JSON array of objects. No markdown, no explanations.\n");
+
+        sb.append("Each object MUST have field: relevant (boolean).\n");
+        sb.append("\nFor each item:\n");
+        sb.append("Determine if the title/description is relevant to: ").append(ActscraperApplication.getActscraperApplication().getTopic()).append("\n\n");
+        sb.append("Items to evaluate:\n");
+
+        for (int i = 0; i < texts.size(); i++) {
+            sb.append(i + 1).append(". ").append(texts.get(i)).append("\n");
+        }
+        return sb.toString();
+    }
+
+    private static boolean[] parseRelevanceArray(String answer, int expectedSize) {
+        if (answer == null || answer.isBlank()) {
+            throw new GeminiFailure("Gemini returned empty JSON payload.");
+        }
+
+        String clean = answer.replaceAll("(?s)^```(?:json)?\\s*|```$", "").trim();
+        if (!clean.startsWith("[") || !clean.endsWith("]")) {
+            throw new GeminiFailure("Gemini response is not a JSON array.");
+        }
+
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(clean);
+            if (!root.isArray()) {
+                throw new GeminiFailure("Gemini response root is not an array.");
+            }
+
+            if (root.size() != expectedSize) {
+                throw new GeminiFailure("Gemini returned " + root.size() + " results but " + expectedSize + " were requested.");
+            }
+
+            boolean[] result = new boolean[expectedSize];
+
+            for (int i = 0; i < expectedSize; i++) {
+                JsonNode node = root.get(i);
+                if (node == null || !node.isObject()) {
+                    throw new GeminiFailure("Gemini response entry " + i + " is invalid.");
+                }
+
+                JsonNode relevantNode = node.get("relevant");
+                if (relevantNode == null || !relevantNode.isBoolean()) {
+                    throw new GeminiFailure("Gemini response entry " + i + " is missing boolean 'relevant'.");
+                }
+
+                result[i] = relevantNode.asBoolean();
+            }
+
+            return result;
+        } catch (Exception e) {
+            if (e instanceof GeminiFailure geminiFailure) {
+                throw geminiFailure;
+            }
+            throw new GeminiFailure("Failed to parse Gemini relevance JSON.", e);
+        }
     }
 
     private static EvaluationResult[] parseEvaluationArray(String answer, int expectedSize) {
@@ -150,14 +252,12 @@ public final class GeminiEntryPromptService {
                 }
 
                 JsonNode relevantNode = node.get("relevant");
-                if (relevantNode == null || !relevantNode.isBoolean()) {
-                    throw new GeminiFailure("Gemini response entry " + i + " is missing boolean 'relevant'.");
-                }
+                boolean isRelevant = (relevantNode != null && relevantNode.isBoolean()) ? relevantNode.asBoolean() : true;
 
                 String sentimentRaw = node.path("sentiment").asText("UNKNOWN");
                 String appraisalText = node.path("appraisal").asText("");
                 FeedbackTone tone = parseSentiment(sentimentRaw);
-                result[i] = new EvaluationResult(relevantNode.asBoolean(), tone, appraisalText);
+                result[i] = new EvaluationResult(isRelevant, tone, appraisalText);
             }
 
             return result;

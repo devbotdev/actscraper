@@ -37,7 +37,7 @@ public class FileStorage {
     public static void saveMentionToFile(Mention mention) {
         try {
             String record = mention.toString() + " | URL: " + mention.getUrl() + System.lineSeparator();
-            Files.writeString(Paths.get("saved_mentions.txt"), record, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            Files.writeString(Paths.get("saved_mentions.txt"), record, java.nio.charset.StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -62,7 +62,7 @@ public class FileStorage {
     public static void saveAnalysisResultsToJson(List<AnalysisResult> results) {
         try {
             String json = OBJECT_MAPPER.writeValueAsString(results);
-            Files.writeString(Paths.get("analysis_results.json"), json);
+            Files.writeString(Paths.get("analysis_results.json"), json, java.nio.charset.StandardCharsets.UTF_8);
             System.out.println("  [SAVED] " + results.size() + " results to analysis_results.json");
         } catch (IOException e) {
             System.out.println("  [ERROR] saving analysis results to JSON: " + e.getMessage());
@@ -141,5 +141,3 @@ public class FileStorage {
         }
     }
 }
-
-

@@ -20,21 +20,32 @@ import java.util.Date;
 @EnableScheduling
 public class ActscraperApplication {
 
+    // Enable if the article fetching is being rate limited
+    private static final boolean ratelimiting = false;
+
     private final String eval = ", if so, append each item with a positive / negative impression tag.";
     private static ActscraperApplication actscraperApplication;
-    private static final Inscribe inscribe = new Inscribe();
-    private static final OutOfDateUrls outOfDateUrls = new OutOfDateUrls();
-    private final GeminiConfig geminiConfig = new GeminiConfig();
-    private final GeminiService geminiService = new GeminiService(geminiConfig, getGeminiApiKey());
-    private final ArrayList<Item> map = new ArrayList<>();
-    private final Keywords keywords = new Keywords();
+    private final Inscribe inscribe;
+    private final OutOfDateUrls outOfDateUrls;
+    private final GeminiConfig geminiConfig;
+    private final GeminiService geminiService;
+    private final ArrayList<Item> map;
+    private final Keywords keywords;
+    private final Scrapers scrapers;
+    private final GeminiController geminiController;
 
-    private final String systemPrompt =
-            "Determine if each item below is related to One Albania's current affairs"
-                    + eval;
+    private final String topic = "One Albania's current affairs";
+
+    private final String systemPrompt = topic + eval;
 
     private static Date startDate;
     private static Date endDate;
+
+    // Should the full text be sent or the URL? URL only seems to be more token efficient
+    private final boolean fulltextEnabled = false;
+    public boolean isFulltextEnabled() {
+        return fulltextEnabled;
+    }
 
     public ActscraperApplication() {
         actscraperApplication = this;
@@ -45,22 +56,30 @@ public class ActscraperApplication {
         endDate = Date.from(
                 LocalDate.now().plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant());
 
+        map = new ArrayList<>();
         map.add(new Item("https://www.balkanweb.com/feed/",       "BalkanWeb",    0.85));
-        map.add(new Item("https://www.panorama.com.al/feed/",     "Panorama",     0.80));
-        map.add(new Item("https://www.shekulli.com.al/feed/",     "Shekulli",     0.75));
-        map.add(new Item("https://www.gazetashqip.com/feed/",     "Gazeta Shqip", 0.70));
-        map.add(new Item("https://www.report.al/feed/",           "Report TV",    0.88));
+//        map.add(new Item("https://www.panorama.com.al/feed/",     "Panorama",     0.80));
+//        map.add(new Item("https://www.shekulli.com.al/feed/",     "Shekulli",     0.75));
+//        map.add(new Item("https://www.gazetashqip.com/feed/",     "Gazeta Shqip", 0.70));
+//        map.add(new Item("https://www.report.al/feed/",           "Report TV",    0.88));
+
+        keywords = new Keywords();
 
         for (int i = 0; i < new Keywords().size(); i++)
             map.add(new Item("https://news.google.com/rss/search?q=" + keywords.get(i),
                     MessageFormat.format("Google News {0}", keywords.get(i).replace("+", " ")),    0.88));
+
+        inscribe = new Inscribe();
+        outOfDateUrls = new OutOfDateUrls();
+        geminiConfig = new GeminiConfig();
+        geminiService = new GeminiService(geminiConfig, getGeminiApiKey());
+        geminiController = new GeminiController(geminiService);
+        scrapers = new Scrapers();
     }
 
     private String getGeminiApiKey() {
         return FileStorage.readApiKeyFromFile("gemini", "gemini_api_key.txt");
     }
-
-    private final GeminiController geminiController = new GeminiController(geminiService);
 
     static void main(String[] args) {
         new ActscraperApplication();
@@ -72,16 +91,16 @@ public class ActscraperApplication {
         System.out.println("Running scheduled fetch...");
 
         for (Item item : map) {
-            Scrapers.fetch(item.url(), item.name(), item.weight(), inscribe);
+            scrapers.fetch(item.url(), item.name(), item.weight(), inscribe);
         }
 
         // Usage Limit - Uncomment when fixed
-        //Scrapers.fetchSocialMediaComments();
+        scrapers.fetchSocialMediaComments();
 
-//        Scrapers.fetchRedditComments(inscribe);
+        scrapers.fetchRedditComments(inscribe);
 
         // Run the article body text
-        Scrapers.processPendingItems(inscribe);
+        scrapers.processPendingItems(inscribe);
 
         System.out.println("Cycle Finished. Next cycle in 5 minutes...");
     }
@@ -96,6 +115,10 @@ public class ActscraperApplication {
 
     public String getSystemPrompt() {
         return systemPrompt;
+    }
+
+    public String getTopic() {
+        return topic;
     }
 
     public static Date getStartDate() {
@@ -114,8 +137,10 @@ public class ActscraperApplication {
         ActscraperApplication.endDate = endDate;
     }
 
-    public static OutOfDateUrls getOutOfDateUrls() {
+    public OutOfDateUrls getOutOfDateUrls() {
         return outOfDateUrls;
     }
+
+    public static boolean getRateLimiting() {return ratelimiting;}
 }
 

@@ -1,17 +1,24 @@
 package com.one.actscraper;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.one.actscraper.Error.GeminiFailure;
 import com.one.actscraper.Gemini.GeminiEntryPromptService;
+import com.one.actscraper.Item.FeedbackTone;
+import com.one.actscraper.Browser.ArticleExtractor;
 import com.rometools.rome.feed.synd.SyndEntry;
 import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.io.SyndFeedInput;
 import com.rometools.rome.io.XmlReader;
+import org.jsoup.Connection;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 
+import java.io.IOException;
 import java.io.StringReader;
+import java.net.SocketTimeoutException;
 import java.net.URI;
-import java.net.URL;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -20,7 +27,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Objects;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class Scrapers {
 
@@ -32,19 +39,25 @@ public class Scrapers {
     private static final String instagramUsername = "one.albania";
     private static final String facebookID = "100064865822999"; // Facebook won't work with usernames
 
-    private static class PendingItem {
+    private static final short redditComments = 10;
+
+    private static final int MAX_CHARS = 15_000;
+
+    public class PendingItem {
         Mention mention;
         String textToPrompt;
         String urlToInscribe;
         boolean webpageItem;
         String fullArticleContent;
+        boolean assumeRelevance;
 
-        public PendingItem(Mention mention, String textToPrompt, String urlToInscribe, boolean webpageItem) {
+        public PendingItem(Mention mention, String textToPrompt, String urlToInscribe, boolean webpageItem, boolean assumeRelevance) {
             this.mention = mention;
             this.textToPrompt = textToPrompt;
             this.urlToInscribe = urlToInscribe;
             this.webpageItem = webpageItem;
             this.fullArticleContent = null;
+            this.assumeRelevance = assumeRelevance;
         }
 
         String buildPromptText() {
@@ -52,21 +65,32 @@ public class Scrapers {
                 return textToPrompt;
             }
 
-            if (fullArticleContent != null && !fullArticleContent.isBlank()) {
-                return textToPrompt
-                        + "\n\n=== FULL ARTICLE BODY ===\n"
-                        + fullArticleContent
-                        + "\n=== END ARTICLE ===";
+            if (ActscraperApplication.getActscraperApplication().isFulltextEnabled()) {
+                if (fullArticleContent != null && !fullArticleContent.isBlank()) {
+                    return textToPrompt
+                            + "\n\n=== FULL ARTICLE BODY ===\n"
+                            + fullArticleContent
+                            + "\n=== END ARTICLE ===";
+                } else {
+                    // Fallback: provide title, description, and URL as the body so Gemini evaluates sentiment
+                    return textToPrompt
+                            + "\n\n=== FULL ARTICLE BODY & ARTICLE URL ===\n"
+                            + textToPrompt
+                            + "\n=== END ARTICLE ===";
+                }
             } else {
-                // Fallback: just use the title and description
-                return textToPrompt;
+                // Seems to be more efficient
+                return textToPrompt
+                        + "\n\n=== FULL ARTICLE BODY & ARTICLE URL ===\n"
+                        + textToPrompt
+                        + "\n=== END ARTICLE ===";
             }
         }
     }
 
-    private static final List<PendingItem> pendingItems = new ArrayList<>();
+    private final List<PendingItem> pendingItems = new ArrayList<>();
 
-    public static void processPendingItems(Inscribe inscribe) {
+    public void processPendingItems(Inscribe inscribe) {
         if (pendingItems.isEmpty()) {
             System.out.println("No new articles to process through Gemini.");
             return;
@@ -74,35 +98,94 @@ public class Scrapers {
 
         System.out.println("Processing " + pendingItems.size() + " accumulated items through Gemini in bulk...");
 
-        // Fetch full article content for webpage items before processing
-        System.out.println("Fetching full article content for webpage sources...");
-        for (PendingItem item : pendingItems) {
-            if (item.webpageItem && item.urlToInscribe != null) {
-                String content = fetchArticleContent(item.urlToInscribe);
-                if (content != null && !content.isBlank()) {
-                    item.fullArticleContent = content;
-                    System.out.println("  [FETCHED] " + item.urlToInscribe + " (" + content.length() + " chars)");
+        boolean fullTextEnabled = ActscraperApplication.getActscraperApplication().isFulltextEnabled();
+
+        // Step 1: Check relevance first!
+        List<String> textToPrompts = new ArrayList<>();
+        List<Integer> indexToPrompts = new ArrayList<>();
+        boolean[] relevanceFlags = new boolean[pendingItems.size()];
+
+        if (fullTextEnabled) {
+            for (int i = 0; i < pendingItems.size(); i++) {
+                if (pendingItems.get(i).assumeRelevance) {
+                    relevanceFlags[i] = true;
+                } else {
+                    textToPrompts.add(pendingItems.get(i).textToPrompt);
+                    indexToPrompts.add(i);
                 }
+            }
+
+            if (!textToPrompts.isEmpty()) {
+                try {
+                    boolean[] geminiResults = GeminiEntryPromptService.checkBatchRelevance(textToPrompts);
+                    for (int i = 0; i < geminiResults.length; i++) {
+                        relevanceFlags[indexToPrompts.get(i)] = geminiResults[i];
+                    }
+                } catch (GeminiFailure e) {
+                    System.out.println("  [ERROR] Gemini failed to establish relevance. Skipping persistence for this run: " + e.getMessage());
+                    for (PendingItem item : pendingItems) {
+                        String retryKey = item.urlToInscribe != null ? item.urlToInscribe : item.mention.getUrl();
+                        System.out.println("  [RETRY] Not persisted due to Gemini failure: " + retryKey);
+                    }
+                    pendingItems.clear();
+                    return;
+                }
+            }
+
+            // Fetch full article content for webpage items that are relevant before processing sentiment
+            boolean needsDelay = false;
+            System.out.println("Fetching full article content for relevant webpage sources...");
+            for (int i = 0; i < pendingItems.size(); i++) {
+                PendingItem item = pendingItems.get(i);
+                item.mention.setFlagged(relevanceFlags[i]);
+
+                if (relevanceFlags[i] && item.webpageItem && item.urlToInscribe != null) {
+                    if (needsDelay) {
+                        try {
+                            Thread.sleep(500 + ThreadLocalRandom.current().nextInt(1000));
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                    String content = fetchArticleContent(item.urlToInscribe);
+                    if (content != null && !content.isBlank()) {
+                        item.fullArticleContent = content;
+                        System.out.println("  [FETCHED] " + item.urlToInscribe + " (" + content.length() + " chars)");
+                    }
+                    if (ActscraperApplication.getRateLimiting()) needsDelay = true;
+                }
+            }
+        } else {
+            // Assume relevance is true for now so they get passed to the evaluation stage, which will determine relevance
+            for (int i = 0; i < pendingItems.size(); i++) {
+                relevanceFlags[i] = true;
+                pendingItems.get(i).mention.setFlagged(true);
             }
         }
 
         List<String> texts = new ArrayList<>();
+        List<PendingItem> relevantItems = new ArrayList<>();
         for (PendingItem item : pendingItems) {
-            texts.add(item.buildPromptText());
+            if (item.mention.isFlagged()) { // Process sentiment only for relevant items
+                texts.add(item.buildPromptText());
+                relevantItems.add(item);
+            }
         }
 
-        GeminiEntryPromptService.EvaluationResult[] evaluations;
-        try {
-            evaluations = GeminiEntryPromptService.checkBatchEvaluations(texts);
-        } catch (GeminiFailure e) {
-            System.out.println("  [ERROR] Gemini failed to evaluate pending batch. Skipping persistence for this run: " + e.getMessage());
-            for (PendingItem item : pendingItems) {
-                String retryKey = item.urlToInscribe != null ? item.urlToInscribe : item.mention.getUrl();
-                System.out.println("  [RETRY] Not persisted due to Gemini failure: " + retryKey);
+        GeminiEntryPromptService.EvaluationResult[] evaluations = new GeminiEntryPromptService.EvaluationResult[0];
+        if (!texts.isEmpty()) {
+            try {
+                evaluations = GeminiEntryPromptService.checkBatchEvaluations(texts);
+            } catch (GeminiFailure e) {
+                System.out.println("  [ERROR] Gemini failed to evaluate batch sentiment. Skipping persistence for this run: " + e.getMessage());
+                for (PendingItem item : pendingItems) {
+                    String retryKey = item.urlToInscribe != null ? item.urlToInscribe : item.mention.getUrl();
+                    System.out.println("  [RETRY] Not persisted due to Gemini failure: " + retryKey);
+                }
+                // Clear failed in-memory batch to avoid duplicate accumulation; they will be re-fetched next run.
+                pendingItems.clear();
+                return;
             }
-            // Clear failed in-memory batch to avoid duplicate accumulation; they will be re-fetched next run.
-            pendingItems.clear();
-            return;
         }
 
         System.out.println("\n=== Results & Saving ===");
@@ -110,20 +193,37 @@ public class Scrapers {
         // Load existing results from JSON to avoid overwriting
         List<AnalysisResult> analysisResults = new ArrayList<>(FileStorage.loadAnalysisResultsFromJson());
 
-        for (int i = 0; i < pendingItems.size(); i++) {
-            PendingItem item = pendingItems.get(i);
+        int evalIndex = 0;
+        for (PendingItem item : pendingItems) {
             if (item.urlToInscribe != null && inscribe != null) {
                 inscribe.addUrl(item.urlToInscribe);
             }
-            item.mention.setFlagged(evaluations[i].isRelevant());
-            item.mention.setFeedbackTone(evaluations[i].getFeedbackTone());
-            item.mention.setAppraisal(evaluations[i].getAppraisal());
-            System.out.println(item.mention);
-            FileStorage.saveMentionToFile(item.mention);
 
-            // Create AnalysisResult and save to JSON
-            AnalysisResult result = new AnalysisResult(item.mention, evaluations[i].getAppraisal());
-            analysisResults.add(result);
+            if (item.mention.isFlagged()) {
+                boolean isEvalRelevant = evaluations[evalIndex].isRelevant();
+                item.mention.setFeedbackTone(evaluations[evalIndex].getFeedbackTone());
+                item.mention.setAppraisal(evaluations[evalIndex].getAppraisal());
+
+                if (isEvalRelevant) {
+                    System.out.println(item.mention);
+                    FileStorage.saveMentionToFile(item.mention);
+
+                    // Create AnalysisResult and save to JSON
+                    AnalysisResult result = new AnalysisResult(item.mention, item.mention.getAppraisal());
+                    analysisResults.add(result);
+                } else {
+                    item.mention.setFlagged(false);
+                    item.mention.setFeedbackTone(FeedbackTone.UNKNOWN);
+                    System.out.println("  [IGNORED] Full article false positive: " + (item.urlToInscribe != null ? item.urlToInscribe : item.textToPrompt));
+                    FileStorage.saveMentionToFile(item.mention);
+                }
+
+                evalIndex++;
+            } else {
+                item.mention.setFeedbackTone(FeedbackTone.UNKNOWN);
+                System.out.println("  [IGNORED] Irrelevant item: " + item.textToPrompt);
+                FileStorage.saveMentionToFile(item.mention);
+            }
         }
 
         // Save all results to JSON (existing + new)
@@ -134,7 +234,7 @@ public class Scrapers {
         pendingItems.clear();
     }
 
-    public static void fetchRedditComments(Inscribe inscribe) {
+    public void fetchRedditComments(Inscribe inscribe) {
         System.out.println("Fetching Reddit comments...");
         try {
             HttpClient client = HttpClient.newBuilder()
@@ -142,7 +242,7 @@ public class Scrapers {
                     .build();
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://www.reddit.com/"+subReddit+"/comments.json?limit=10"))
+                    .uri(URI.create("https://www.reddit.com/" + subReddit + "/comments.json?limit=" + redditComments))
                     .header("User-Agent", "ActScraper/1.0")
                     .GET()
                     .build();
@@ -151,32 +251,27 @@ public class Scrapers {
 
             if (response.statusCode() == 200) {
                 String json = response.body();
-                String[] items = json.split("\"body\":");
 
-                // Collect new (unseen) comments first
-                List<String> bodies = new ArrayList<>();
-                List<String> fUrls = new ArrayList<>();
+                JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+                JsonArray children = root.getAsJsonObject("data").getAsJsonArray("children");
+                for (JsonElement child : children) {
+                    JsonObject data = child.getAsJsonObject().getAsJsonObject("data");
+                    String part = data.has("body") ? data.get("body").getAsString() : null;
+                    long createdUtc = data.has("created_utc") ? data.get("created_utc").getAsLong() : 0;
+                    Date publishedDate = createdUtc > 0 ? new Date(createdUtc * 1000L) : new Date();
 
-                for (int i = 1; i < items.length; i++) {
-                    String part = items[i].split(",")[0].replace("\"", "");
-                    if (part.length() > 5) {
-                        String fUrl = "reddit-" + part.hashCode();
+                    if (part != null && part.length() > 5) {
+                        String fUrl = syntheticId("reddit-", part);
                         if (inscribe.getSeenUrls().contains(fUrl)) continue;
-                        bodies.add(part);
-                        fUrls.add(fUrl);
-                    }
-                }
 
-                for (int i = 0; i < bodies.size(); i++) {
-                    String part = bodies.get(i);
-                    String fUrl = fUrls.get(i);
-                    Mention m = new Mention(
-                            "Reddit Comment: " + (part.length() > 30 ? part.substring(0, 30) + "..." : part),
-                            fUrl, new Date(), "Reddit", 0.60);
-                    if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
-                        pendingItems.add(new PendingItem(m, part, fUrl, false));
-                    else
-                        ActscraperApplication.getOutOfDateUrls().addUrl(fUrl);
+                        Mention m = new Mention(
+                                "Reddit Comment: " + (part.length() > 30 ? part.substring(0, 30) + "..." : part),
+                                fUrl, publishedDate, "Reddit", 0.60);
+                        if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) && m.getPublishedDate().before(ActscraperApplication.getEndDate()))
+                            pendingItems.add(new PendingItem(m, part, fUrl, false, false));
+                        else
+                            ActscraperApplication.getActscraperApplication().getOutOfDateUrls().addUrl(fUrl);
+                    }
                 }
             } else {
                 System.out.println("Reddit API returned " + response.statusCode());
@@ -187,7 +282,7 @@ public class Scrapers {
         }
     }
 
-    public static void fetchSocialMediaComments() {
+    public void fetchSocialMediaComments() {
         System.out.println("Fetching Facebook and Instagram comments via RapidAPI...");
         try {
             String rapidApiKey = FileStorage.readApiKeyFromFile("rapid", "rapidapi_key.txt");
@@ -202,7 +297,7 @@ public class Scrapers {
 
             // FACEBOOK
             HttpRequest fbPostsRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://" + fbAPIString + "/get_facebook_page_posts_details_from_id?profile_id="+facebookID+"&timezone=UTC"))
+                    .uri(URI.create("https://" + fbAPIString + "/get_facebook_page_posts_details_from_id?profile_id=" + facebookID + "&timezone=UTC"))
                     .header("x-rapidapi-key", rapidApiKey)
                     .header("x-rapidapi-host", fbAPIString)
                     .GET().build();
@@ -213,7 +308,7 @@ public class Scrapers {
                 for (String link : postLinks) {
                     String encoded = java.net.URLEncoder.encode(link, StandardCharsets.UTF_8);
                     HttpRequest commentsReq = HttpRequest.newBuilder()
-                            .uri(URI.create("https://"+fbAPIString+"/get_facebook_post_comments_details?link=" + encoded))
+                            .uri(URI.create("https://" + fbAPIString + "/get_facebook_post_comments_details?link=" + encoded))
                             .header("x-rapidapi-key", rapidApiKey)
                             .header("x-rapidapi-host", fbAPIString)
                             .GET().build();
@@ -222,14 +317,14 @@ public class Scrapers {
                     if (commentsResp.statusCode() == 200) {
                         List<String> comments = extractJsonValues(commentsResp.body(), "comment_text");
                         for (String comment : comments) {
-                            String url = "fb-" + link.hashCode() + "-" + comment.hashCode();
+                            String url = syntheticId("fb-", link, comment);
                             Mention m = new Mention(
                                     "FB Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
                                     url, new Date(), "Facebook", 0.70);
-                            if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
-                                pendingItems.add(new PendingItem(m, comment, null, false));
+                            if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) && m.getPublishedDate().before(ActscraperApplication.getEndDate()))
+                                pendingItems.add(new PendingItem(m, comment, null, false, false));
                             else
-                                ActscraperApplication.getOutOfDateUrls().addUrl(url);
+                                ActscraperApplication.getActscraperApplication().getOutOfDateUrls().addUrl(url);
                         }
                     } else {
                         System.out.println("  [ERROR] Facebook comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -241,7 +336,7 @@ public class Scrapers {
 
             // INSTAGRAM
             HttpRequest igPostsRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://"+igAPIString+"/userposts/?username_or_id=" + instagramUsername))
+                    .uri(URI.create("https://" + igAPIString + "/userposts/?username_or_id=" + instagramUsername))
                     .header("x-rapidapi-key", rapidApiKey)
                     .header("x-rapidapi-host", igAPIString)
                     .GET().build();
@@ -251,7 +346,7 @@ public class Scrapers {
                 List<String> postCodes = extractJsonValues(igPostsResponse.body(), "code");
                 for (String code : postCodes) {
                     HttpRequest commentsReq = HttpRequest.newBuilder()
-                            .uri(URI.create("https://"+igAPIString+"/postcomments/?code_or_url=" + code))
+                            .uri(URI.create("https://" + igAPIString + "/postcomments/?code_or_url=" + code))
                             .header("x-rapidapi-key", rapidApiKey)
                             .header("x-rapidapi-host", igAPIString)
                             .GET().build();
@@ -260,14 +355,14 @@ public class Scrapers {
                     if (commentsResp.statusCode() == 200) {
                         List<String> comments = extractJsonValues(commentsResp.body(), "text");
                         for (String comment : comments) {
-                            String url = "ig-" + code.hashCode() + "-" + comment.hashCode();
+                            String url = syntheticId("ig-", code, comment);
                             Mention m = new Mention(
                                     "IG Comment: " + (comment.length() > 30 ? comment.substring(0, 30) + "..." : comment),
                                     url, new Date(), "Instagram", 0.70);
-                            if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) & m.getPublishedDate().before(ActscraperApplication.getEndDate()))
-                                pendingItems.add(new PendingItem(m, comment, null, false));
+                            if (m.getPublishedDate().after(ActscraperApplication.getStartDate()) && m.getPublishedDate().before(ActscraperApplication.getEndDate()))
+                                pendingItems.add(new PendingItem(m, comment, null, false, false));
                             else
-                                ActscraperApplication.getOutOfDateUrls().addUrl(url);
+                                ActscraperApplication.getActscraperApplication().getOutOfDateUrls().addUrl(url);
                         }
                     } else {
                         System.out.println("  [ERROR] Instagram comments fetch returned " + commentsResp.statusCode() + ": " + commentsResp.body());
@@ -283,30 +378,20 @@ public class Scrapers {
 
     private static List<String> extractJsonValues(String json, String key) {
         List<String> results = new ArrayList<>();
-        String search = "\"" + key + "\"";
-        int idx = 0;
-        while ((idx = json.indexOf(search, idx)) != -1) {
-            idx = json.indexOf(":", idx) + 1;
-            while (idx < json.length() && json.charAt(idx) == ' ') idx++;
-            if (idx < json.length() && json.charAt(idx) == '"') {
-                int end = json.indexOf("\"", idx + 1);
-                if (end != -1) results.add(json.substring(idx + 1, end));
-            }
-            idx++;
-        }
+        collectValues(JsonParser.parseString(json), key, results);
         return results;
     }
 
-    public static void fetch(String url, String sourceName, double weight, Inscribe inscribe) {
+    public void fetch(String url, String sourceName, double weight, Inscribe inscribe) {
         fetch(url, sourceName, weight, false, inscribe);
     }
 
-    public static void fetch(String url, String sourceName, double weight, boolean allowDoctypes, Inscribe inscribe) {
+    public void fetch(String url, String sourceName, double weight, boolean allowDoctypes, Inscribe inscribe) {
         SyndFeed feed;
         try {
             SyndFeedInput input = new SyndFeedInput();
-            java.net.URLConnection conn = new URL(url).openConnection();
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+            java.net.URLConnection conn = URI.create(url).toURL().openConnection();
+            conn.setRequestProperty("User-Agent", USER_AGENTS.get(ThreadLocalRandom.current().nextInt(USER_AGENTS.size())));
 
             if (allowDoctypes) {
                 String raw = new String(conn.getInputStream().readAllBytes());
@@ -334,7 +419,7 @@ public class Scrapers {
         List<SyndEntry> newEntries = new ArrayList<>();
         for (SyndEntry entry : entries) {
             if (!inscribe.getSeenUrls().contains(entry.getLink()) &&
-                !ActscraperApplication.getOutOfDateUrls().contains(entry.getLink())) {
+                    !ActscraperApplication.getActscraperApplication().getOutOfDateUrls().contains(entry.getLink())) {
                 newEntries.add(entry);
             }
         }
@@ -348,7 +433,7 @@ public class Scrapers {
             String text = entry.getTitle()
                     + " "
                     + (entry.getDescription() != null ? entry.getDescription().getValue() : "");
-            
+
             Mention mention = new Mention(
                     entry.getTitle(),
                     entry.getLink(),
@@ -358,73 +443,89 @@ public class Scrapers {
             );
 
             // Check if URL is within the current date range
-            if (entry.getPublishedDate().after(ActscraperApplication.getStartDate()) &
-                entry.getPublishedDate().before(ActscraperApplication.getEndDate())) {
+            if (entry.getPublishedDate().after(ActscraperApplication.getStartDate()) &&
+                    entry.getPublishedDate().before(ActscraperApplication.getEndDate())) {
+
+                // Evaluate relevance for all articles; Google News returns many false positives
+                boolean assumeRelevance = false;
+
                 // Within date range - add to pending for processing
                 pendingItems.add(new PendingItem(
-                    mention,
-                    text,
-                    entry.getLink(),
-                    true
+                        mention,
+                        text,
+                        entry.getLink(),
+                        true,
+                        assumeRelevance
                 ));
             } else {
                 // Outside date range - mark as out-of-date so we don't re-fetch it repeatedly
-                ActscraperApplication.getOutOfDateUrls().addUrl(entry.getLink());
+                ActscraperApplication.getActscraperApplication().getOutOfDateUrls().addUrl(entry.getLink());
             }
         }
     }
 
-    private static String fetchArticleContent(String urlString) {
+    private static final List<String> USER_AGENTS = List.of(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:138.0) Gecko/20100101 Firefox/138.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Safari/605.1.15"
+    );
+
+    private String fetchArticleContent(String urlString) {
+        if (urlString == null || urlString.isBlank()) return null;
+
+        String ua = USER_AGENTS.get(ThreadLocalRandom.current().nextInt(USER_AGENTS.size()));
+
         try {
-            if (urlString == null || urlString.isBlank()) {
-                return null;
-            }
+            Connection.Response res = Jsoup.connect(urlString)
+                    .userAgent(ua)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.5")
+                    .header("Upgrade-Insecure-Requests", "1")
+                    .followRedirects(true)
+                    .timeout(10_000)
+                    .ignoreHttpErrors(true)
+                    .execute();
 
-            // Fetch the HTML document with a reasonable timeout
-            Document doc = Jsoup.connect(urlString)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-                    .timeout(10000)
-                    .get();
+            if (res.statusCode() >= 400)
+                return null;   // let caller decide retry vs skip based on code if you surface it
 
+            String cleaned = ArticleExtractor.extract(res.body());
+            if (cleaned.isBlank()) return null;
 
-            // Remove noise elements before extracting text
-            for (String selector : List.of(
-                    "nav", "footer", "header", "aside",
-                    "script", "style", "noscript",
-                    "[class*=ad]", "[id*=ad]", "[class*=banner]",
-                    "[class*=cookie]", "[class*=popup]", "[class*=sidebar]",
-                    "figure", "figcaption"
-            )) {
-                doc.select(selector).remove();
-            }
+            return cleaned.length() > MAX_CHARS ? cleaned.substring(0, MAX_CHARS) : cleaned;
 
-            // Extract text from common article content containers
-            String text = doc.selectFirst("article") != null
-                    ? Objects.requireNonNull(doc.selectFirst("article")).text()
-                    : doc.selectFirst("main") != null
-                    ? Objects.requireNonNull(doc.selectFirst("main")).text()
-                    : doc.selectFirst("[role=main]") != null
-                    ? Objects.requireNonNull(doc.selectFirst("[role=main]")).text()
-                    : null;
-
-            // Fallback: try body if no specific container found
-            if (text == null || text.isBlank()) {
-                text = doc.body().text();
-            }
-
-            // Clean up excessive whitespace
-            text = text.replaceAll("\\s+", " ").trim();
-            // Cap at 8000 characters to save tokens
-            if (text.length() > 8000) {
-                text = text.substring(0, 8000) + "...";
-            }
-
-            System.out.println(text);
-
-            return text;
-        } catch (Exception e) {
-            System.out.println("  [WARNING] Failed to fetch article content from " + urlString + ": " + e.getMessage());
+        } catch (SocketTimeoutException e) {
+            System.out.println("[TIMEOUT] " + urlString);
+            return null;   // transient; caller can retry
+        } catch (IOException e) {
+            System.out.println("[FETCH-ERROR] " + urlString + ": " + e.getMessage());
             return null;
         }
+    }
+
+    private static void collectValues(JsonElement element, String key, List<String> out) {
+        if (element.isJsonObject()) {
+            JsonObject obj = element.getAsJsonObject();
+            for (var entry : obj.entrySet()) {
+                if (entry.getKey().equals(key) && entry.getValue().isJsonPrimitive()) {
+                    out.add(entry.getValue().getAsString());
+                } else {
+                    collectValues(entry.getValue(), key, out);
+                }
+            }
+        } else if (element.isJsonArray()) {
+            for (JsonElement child : element.getAsJsonArray()) {
+                collectValues(child, key, out);
+            }
+        }
+    }
+
+    private static String syntheticId(String prefix, String... parts) {
+        long hash = 0;
+        for (String part : parts) {
+            hash = 31 * hash + (part != null ? part.hashCode() : 0);
+        }
+        return prefix + Math.abs(hash);
     }
 }
